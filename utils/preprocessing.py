@@ -26,11 +26,12 @@ def random_image_sample(paths, chosen_images = 10):
             ax[j].yaxis.set_visible(False)
     fig.suptitle('Sampled Images')
 
-def decode_img(img):
+def decode_img(img,img_height=180,img_width=180):
     # convert the compressed string to a 3D uint8 tensor
     img = tf.image.decode_jpeg(img, channels=3)
     # resize the image to the desired size
-    return tf.image.central_crop(img, 1)
+    img = tf.image.central_crop(img, 1)
+    return tf.image.resize(img, [img_height, img_width])
 
 def process_path(file_path):
     # load the raw data from the file as a string
