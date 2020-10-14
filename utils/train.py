@@ -76,6 +76,16 @@ def train(dataset,
     log_dir = os.path.join(os.getcwd(), 'logs')
     output_dir = os.path.join(os.getcwd(), 'outputs')
     checkpoint_path = os.path.join(os.getcwd(),'checkpoints')
+
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    if not os.path.exists(checkpoint_path):
+        os.makedirs(checkpoint_path)
+
     checkpoint_dir = os.path.dirname(checkpoint_path)
 
     checkpoint = tf.train.Checkpoint(step=tf.Variable(1),generator_optimizer=generator_optimizer,
