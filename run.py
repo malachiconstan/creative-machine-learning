@@ -2,7 +2,9 @@ import os
 import glob
 import tensorflow as tf
 import tensorflow.keras as keras
+import tensorflow.keras.layers as layers
 import datetime as dt
+import argparse
 
 from PIL import Image
 from utils.preprocessing import random_image_sample, get_image_dataset
@@ -13,28 +15,59 @@ import matplotlib.pyplot as plt
 
 from IPython import display
 
+def get_options():
+    parser = argparse.ArgumentParser()
+
+    # General options
+    parser.add_argument('--batch_size', default=32, type=int, help='Batch Size =')
+    parser.add_argument('--img_height', default=32, type=int, help='Image Height and Width')
+    parser.add_argument('--latent_dim', default=100, type=int, help='Dimension of latent dimension')
+    parser.add_argument('--epochs', default=100, type=int, help='Total number of epochs to train on')
+    parser.add_argument('--save_step', default=100, type=int, help='Number of epochs before saving')
+    parser.add_argument('--saveimg_step', default=10, type=int, help='Number of epochs before saving an image')
+
+    # Optimizer options
+    parser.add_argument('--lr', default=0.001, type=float, help='Adam optimizer learning rate.')
+    parser.add_argument('--beta1', default=0.5, type=float, help='Adam optimizer beta1.')
+    parser.add_argument('--beta2', default=0.5, type=float, help='Adam optimizer beta2.')
+    parser.add_argument('--gamma', default=0.9999, type=float, help='Exponential LR scheduler gamma discount factor.')
+
+    opt = parser.parse_args()
+
+    # General options Asserts
+    assert opt.batch_size > 0
+    assert opt.img_height > 0
+    assert opt.latent_dim > 0
+    assert opt.epochs > 0
+    assert opt.save_step > 0
+    assert opt.saveimg_step > 0
+
+    # Optimizer options asserts
+    assert opt.lr > 0
+    assert opt.beta1 > 0
+    assert opt.beta2 > 0
+    assert opt.gamma > 0
+
+    return opt
+
 if __name__ == '__main__':
-  BATCH_SIZE = 32
-  IMG_HEIGHT = 32
-  IMG_WIDTH = 32
-  LATENT_DIM = 100
-  EPOCHS = 1
+    opt = get_options()
 
-  data_directory = os.path.join(os.getcwd(),'data')
-  image_path_pattern = os.path.join(data_directory,'gallery_pavilion','*.jpeg')
+    data_directory = os.path.join(os.getcwd(),'data')
+    image_path_pattern = os.path.join(data_directory,'gallery_pavilion','*.jpeg')
 
-  train_dataset = get_image_dataset(os.path.join(data_directory,'gallery_pavilion','*.jpeg'), IMG_HEIGHT, IMG_WIDTH, BATCH_SIZE)
+    train_dataset = get_image_dataset(os.path.join(data_directory,'google_pavilion_2019','*.jpeg'), opt.img_height, opt.img_height, opt.batch_size)
 
-  generator = Generator(latent_dim = LATENT_DIM)
-  discriminator = Discriminator()
+    generator = Generator(latent_dim = opt.latent_dim)
+    discriminator = Discriminator()
 
-  generator.build((100,LATENT_DIM))
-  discriminator.build((10,32,32,3))
+    generator.build((opt.batch_size,opt.latent_dim))
+    discriminator.build((opt.batch_size,opt.img_height,opt.img_height,3))
 
-  generator_optimizer = keras.optimizers.Adam(1e-4)
-  discriminator_optimizer = keras.optimizers.Adam(1e-4)
+    generator_optimizer = keras.optimizers.Adam(opt.lr)
+    discriminator_optimizer = keras.optimizers.Adam(opt.lr)
 
-  train(train_dataset, generator, discriminator, generator_optimizer, discriminator_optimizer, EPOCHS, BATCH_SIZE, LATENT_DIM, data_directory, False, 10, 1)
+    train(train_dataset, generator, discriminator, generator_optimizer, discriminator_optimizer, opt.epochs, opt.batch_size, opt.latent_dim, data_directory,False,opt.save_step,opt.saveimg_step)
 
 
 
