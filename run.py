@@ -54,9 +54,9 @@ if __name__ == '__main__':
     opt = get_options()
 
     data_directory = os.path.join(os.getcwd(),'data')
-    image_path_pattern = os.path.join(data_directory,'gallery_pavilion','*.jpeg')
+    # image_path_pattern = os.path.join(data_directory,'gallery_pavilion','*.jpeg')
 
-    train_dataset = get_image_dataset(os.path.join(data_directory,'google_pavilion_2019','*.jpeg'), opt.img_height, opt.img_height, opt.batch_size)
+    train_dataset = get_image_dataset(os.path.join(data_directory,'google_pavilion','*.jpeg'), opt.img_height, opt.img_height, opt.batch_size)
 
     generator = Generator(latent_dim = opt.latent_dim)
     discriminator = Discriminator()
