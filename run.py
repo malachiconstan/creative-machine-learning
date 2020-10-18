@@ -28,7 +28,7 @@ def get_options():
 
     # Optimizer options
     parser.add_argument('--glr', default=1e-3, type=float, help='Learning rate for generator')
-    parser.add_argument('--dlr', default=1e-4 type=float, help='Learning rate for discriminator')
+    parser.add_argument('--dlr', default=1e-4, type=float, help='Learning rate for discriminator')
     parser.add_argument('--beta1', default=0.5, type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.5, type=float, help='Adam optimizer beta2.')
     parser.add_argument('--gamma', default=0.9999, type=float, help='Exponential LR scheduler gamma discount factor.')
