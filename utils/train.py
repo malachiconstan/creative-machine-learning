@@ -50,19 +50,28 @@ def train_step(images, generator, discriminator, generator_optimizer, discrimina
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
 
-def generate_and_save_images(model, epoch, test_input, output_dir):
+# def generate_and_save_images(model, epoch, test_input, output_dir):
+#     # Notice `training` is set to False.
+#     # This is so all layers run in inference mode (batchnorm).
+#     predictions = model(test_input, training=False)
+#     fig = plt.figure(figsize=(10,10))
+
+#     for i in range(predictions.shape[0]):
+#         plt.subplot(4, 4, i+1)
+#         plt.imshow(predictions[i, :, :, :]* 0.5 + 0.5) # map from range(-1,1) to range(0,1)
+
+#         plt.axis('off')
+#     plt.savefig(os.path.join(output_dir,f'image_at_epoch_{epoch:04d}.png'))
+#     plt.close()
+
+def generate_and_save_images(model, epoch, test_input, file_writer):
     # Notice `training` is set to False.
     # This is so all layers run in inference mode (batchnorm).
     predictions = model(test_input, training=False)
-    fig = plt.figure(figsize=(10,10))
+    predictions = predictions[:, :, :, :]* 0.5 + 0.5
 
-    for i in range(predictions.shape[0]):
-        plt.subplot(4, 4, i+1)
-        plt.imshow(predictions[i, :, :, :]* 0.5 + 0.5) # map from range(-1,1) to range(0,1)
-
-        plt.axis('off')
-    plt.savefig(os.path.join(output_dir,f'image_at_epoch_{epoch:04d}.png'))
-    plt.close()
+    with file_writer.as_default():
+        tf.summary.image('Generated Images', predictions, max_outputs=16, step=epoch)
 
 def display_image(epoch_no, output_dir):
     return Image.open(output_dir,f'image_at_epoch_{epoch:04d}.png')
@@ -142,7 +151,7 @@ def train(dataset,
 
         display.clear_output(wait=True)
         if (epoch + 1 + add_step)%saveimg_step==0:
-            generate_and_save_images(generator,epoch,seed,output_dir)
+            generate_and_save_images(generator,epoch,seed,gen_summary_writer)
 
         if (epoch + 1) % save_step == 0:
             checkpoint.step.assign_add(save_step)
