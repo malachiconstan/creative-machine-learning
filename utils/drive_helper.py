@@ -10,7 +10,7 @@ def extract_data_g_drive(g_drive_path, repo_name='creative-machine-learning'):
         str g_drive_path: preferably os.path, else can also be string showing path to zip file in google drive. zip file should be named data.zip
     '''
     cwd = '/content'
-    drive.mount('drive')
+    drive.mount('/content/drive')
 
     data_path = os.path.join(os.path.join(cwd,'drive'),'My Drive',g_drive_path)
     if os.path.exists(data_path):
