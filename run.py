@@ -27,7 +27,7 @@ def get_options():
     parser.add_argument('--saveimg_step', default=10, type=int, help='Number of epochs before saving an image')
 
     # Optimizer options
-    parser.add_argument('--glr', default=1e-3, type=float, help='Learning rate for generator')
+    parser.add_argument('--glr', default=1e-4, type=float, help='Learning rate for generator')
     parser.add_argument('--dlr', default=1e-4, type=float, help='Learning rate for discriminator')
     parser.add_argument('--beta1', default=0.5, type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.5, type=float, help='Adam optimizer beta2.')
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     discriminator.build((opt.batch_size,opt.img_height,opt.img_height,3))
 
     generator_optimizer = keras.optimizers.Adam(opt.glr)
-    discriminator_optimizer = keras.optimizers.SGD(opt.dlr)
+    discriminator_optimizer = keras.optimizers.Adam(opt.dlr)
 
     train(train_dataset, generator, discriminator, generator_optimizer, discriminator_optimizer, opt.epochs, opt.batch_size, opt.latent_dim, data_directory,False,opt.save_step,opt.saveimg_step)
 

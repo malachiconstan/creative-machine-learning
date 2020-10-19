@@ -170,4 +170,4 @@ def train(dataset,
 
     # Generate after the final epoch
     display.clear_output(wait=True)
-    generate_and_save_images(generator,epoch,seed,output_dir)
+    generate_and_save_images(generator,epoch,seed,gen_summary_writer)
