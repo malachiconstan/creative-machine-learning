@@ -7,25 +7,25 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from IPython import display
 
-def discriminator_loss(real_output, fake_output):
-    cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-    real_loss = cross_entropy(tf.random.uniform([real_output.shape[0]],0.7,1.2), real_output) # set noise to 1
-    fake_loss = cross_entropy(tf.random.uniform([fake_output.shape[0]],0,0.3), fake_output) # set noise to 0
-    total_loss = real_loss + fake_loss
-    return total_loss
-#
 # def discriminator_loss(real_output, fake_output):
-#     real_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([real_output.shape[0],1],0.7,1.2), real_output, from_logits=True) # set noise to 1
-#     fake_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([fake_output.shape[0],1],0,0.3), fake_output, from_logits=True) # set noise to 0
+#     cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+#     real_loss = cross_entropy(tf.random.uniform([real_output.shape[0]],0.7,1.2), real_output) # set noise to 1
+#     fake_loss = cross_entropy(tf.random.uniform([fake_output.shape[0]],0,0.3), fake_output) # set noise to 0
 #     total_loss = real_loss + fake_loss
 #     return total_loss
-
-# def generator_loss(fake_output):
-#     return tf.keras.losses.binary_crossentropy(tf.random.uniform([fake_output.shape[0],1],0.7,1.2), fake_output, from_logits=True) # set noise to 1
+#
+def discriminator_loss(real_output, fake_output):
+    real_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([real_output.shape[0],1],0.7,1.2), real_output, from_logits=True) # set noise to 1
+    fake_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([fake_output.shape[0],1],0,0.3), fake_output, from_logits=True) # set noise to 0
+    total_loss = real_loss + fake_loss
+    return total_loss
 
 def generator_loss(fake_output):
-    cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-    return cross_entropy(tf.random.uniform([fake_output.shape[0]],0.7,1.2), fake_output) # set noise to 1
+    return tf.keras.losses.binary_crossentropy(tf.random.uniform([fake_output.shape[0],1],0.7,1.2), fake_output, from_logits=True) # set noise to 1
+
+# def generator_loss(fake_output):
+#     cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+#     return cross_entropy(tf.random.uniform([fake_output.shape[0]],0.7,1.2), fake_output) # set noise to 1
 
 @tf.function
 def train_step(images, generator, discriminator, generator_optimizer, discriminator_optimizer, latent_dim, batch_size, sdis_loss, sgen_loss, sdis_acc):
