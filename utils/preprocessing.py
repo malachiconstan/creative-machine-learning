@@ -33,10 +33,13 @@ def decode_img(img,img_height,img_width):
     img = tf.image.central_crop(img, 1)
     return tf.image.resize(img, [img_height, img_width])
 
-def process_path(file_path,img_height,img_width):
+def process_path(file_path,img_height,img_width,normalize=True):
     # load the raw data from the file as a string
     img = tf.io.read_file(file_path)
     img = decode_img(img,img_height,img_width)
+    if normalize:
+        img = tf.cast(img,tf.float32)
+        img = (img/127.5)-1
     return img
 
 def configure_for_performance(ds, batch_size):
@@ -47,7 +50,7 @@ def configure_for_performance(ds, batch_size):
     return ds
 
 
-def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32):
+def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True):
     '''
     Function to return a train dataset from glob file pattern
     '''
@@ -56,7 +59,7 @@ def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32):
     image_count = len(list_dataset)
     list_dataset = list_dataset.shuffle(image_count, reshuffle_each_iteration=False)
     train_dataset = list_dataset.skip(0) # No validation required for GAN
-    train_dataset = train_dataset.map(lambda x: process_path(x,img_height,img_width), num_parallel_calls=AUTOTUNE)
+    train_dataset = train_dataset.map(lambda x: process_path(x,img_height,img_width,normalize), num_parallel_calls=AUTOTUNE)
     train_dataset = configure_for_performance(train_dataset, batch_size)
 
     return train_dataset
