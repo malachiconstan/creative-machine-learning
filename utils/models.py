@@ -1,8 +1,9 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
 
-from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, Upscale2d
-
+from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, Upscale2d, mini_batch_sd
+from utils.config import BaseConfig
+from utils.losses import WGANGP
 class Generator(tf.keras.Model):
     def __init__(self, latent_dim, name = 'Vanilla_GAN', **kwargs):
         super(Generator, self).__init__(name = name, **kwargs)
@@ -62,7 +63,7 @@ class Discriminator(tf.keras.Model):
 class PGGenerator(tf.keras.Model):
     def __init__(self,
                 latent_dim,
-                depth_scale_0,
+                level_0_channels,
                 init_bias_zero=True,
                 leaky_relu_leak=0.2,
                 normalization=True,
@@ -95,7 +96,7 @@ class PGGenerator(tf.keras.Model):
         self.init_bias_zero = init_bias_zero
 
         # Initalize the scales
-        self.scalesDepth = [depth_scale_0]
+        self.scalesDepth = [level_0_channels]
         self.scaleLayers = list()
         self.toRGBLayers = list()
 
@@ -103,7 +104,7 @@ class PGGenerator(tf.keras.Model):
         self.initFormatLayer(latent_dim)
         self.dimOutput = output_dim
         self.groupScale0 = list()
-        self.groupScale0.append(EqualizedConv2D(depth_scale_0, 3, equalized=equalizedlR, init_bias_zero=init_bias_zero))
+        self.groupScale0.append(EqualizedConv2D(level_0_channels, 3, equalized=equalizedlR, init_bias_zero=init_bias_zero))
 
         # 1x1 Convolution to RGB
         self.toRGBLayers.append(EqualizedConv2D(self.dimOutput, 1, equalized=equalizedlR, init_bias_zero=init_bias_zero))
@@ -124,7 +125,7 @@ class PGGenerator(tf.keras.Model):
 
         # Last layer activation function
         self.generationActivation = activation
-        self.depth_scale_0 = depth_scale_0
+        self.level_0_channels = level_0_channels
 
     def initFormatLayer(self, latent_dim):
         """
@@ -190,7 +191,7 @@ class PGGenerator(tf.keras.Model):
         # format layer
         X = self.leakyRelu(self.formatLayer(X))
         print(X.shape)
-        X = tf.reshape(X, (X.shape[0], 4, 4, self.depth_scale_0))
+        X = tf.reshape(X, (X.shape[0], 4, 4, self.level_0_channels))
         print(X.shape)
 
         if self.normalizationLayer is not None:
@@ -234,3 +235,274 @@ class PGGenerator(tf.keras.Model):
             X = self.generationActivation(X)
 
         return X
+
+class PGDiscriminator(tf.keras.Model):
+    def __init__(self,
+                 level_0_channels,
+                 init_bias_zero=True,
+                 leaky_relu_leak=0.2,
+                 decision_layer_size=1,
+                 mini_batch_sd=True,
+                 input_dim=3,
+                 equalizedlR=True):
+        """
+        Build a discriminator for a progressive GAN model
+        Args:
+            - depthScale0 (int): depth of the lowest resolution scales
+            - initBiasToZero (bool): should we set the bias to zero when a
+                                    new scale is added
+            - leakyReluLeak (float): leakyness of the leaky relu activation
+                                    function
+            - decisionActivation: activation function of the decision layer. If
+                                  None it will be the identity function.
+                                  For the training stage, it's advised to set
+                                  this parameter to None and handle the
+                                  activation function in the loss criterion.
+            - sizeDecisionLayer: size of the decision layer. Will typically be
+                                 greater than 2 when ACGAN is involved
+            - miniBatchNormalization: do we apply the mini-batch normalization
+                                      at the last scale ?
+            - dimInput (int): 3 (RGB input), 1 (grey-scale input)
+        """
+        super(PGDiscriminator, self).__init__()
+
+        # Initialization paramneters
+        self.init_bias_zero = init_bias_zero
+        self.equalizedlR = equalizedlR
+        self.input_dim = input_dim
+
+        # Initalize the scales
+        self.scale_channels = [level_0_channels]
+        self.scaleLayers = list()
+        self.fromRGBLayers = list()
+
+        self.mergeLayers = list()
+
+        # Initialize the last layer
+        self.init_decision_layer(decision_layer_size)
+
+        # Layer 0
+        self.groupScaleZero = list()
+        self.fromRGBLayers.append(EqualizedConv2D(level_0_channels, 1, equalized=equalizedlR, init_bias_zero=init_bias_zero))
+
+        # Minibatch standard deviation
+        self.mini_batch_sd = mini_batch_sd
+        self.groupScaleZero.append(EqualizedConv2D(level_0_channels, 3, equalized=equalizedlR, init_bias_zero=init_bias_zero))
+        self.groupScaleZero.append(EqualizedDense(level_0_channels, equalized=equalizedlR, init_bias_zero=init_bias_zero))
+
+        # Initalize the upscaling parameters
+        self.alpha = 0
+
+        # Leaky relu activation
+        self.leakyRelu = tf.keras.layers.LeakyReLU(alpha=leaky_relu_leak)
+
+        # Pooling layer
+        self.avg_pool2d = tf.keras.layers.AveragePooling2D(pool_size=(2,2))
+
+    def addScale(self, new_level_channels):
+
+        last_level_channels = self.scale_channels[-1]
+        self.scale_channels.append(new_level_channels)
+
+        self.scaleLayers.append(list())
+
+        self.scaleLayers[-1].append(EqualizedConv2D(new_level_channels, 3, equalized=self.equalizedlR, init_bias_zero=self.init_bias_zero))
+        self.scaleLayers[-1].append(EqualizedConv2D(last_level_channels, 3, equalized=self.equalizedlR, init_bias_zero=self.init_bias_zero))
+
+        self.fromRGBLayers.append(EqualizedConv2D(new_level_channels, 1, equalized=self.equalizedlR, init_bias_zero=self.init_bias_zero))
+
+    @property
+    def alpha(self):
+        """
+        Get alpha value
+        """
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        """
+        Update the value of the merging factor alpha
+        Args:
+            - alpha (float): merging factor, must be in [0, 1]
+        """
+        if value < 0 or value > 1:
+            raise ValueError("alpha must be in [0,1]")
+
+        if not self.fromRGBLayers:
+            raise AttributeError("Can't set an alpha layer if only the scale 0""is defined")
+
+        self._alpha = value
+
+    def init_decision_layer(self, decision_layer_size):
+
+        self.decisionLayer = EqualizedDense(decision_layer_size, equalized=self.equalizedlR, init_bias_zero=self.init_bias_zero)
+
+    def call(self, X, getFeature = False):
+
+        # Alpha blending
+        if self.alpha > 0 and len(self.fromRGBLayers) > 1:
+            y = self.avg_pool2d(X)
+            y = self.leakyRelu(self.fromRGBLayers[- 2](y))
+
+        # From RGB layer
+        X = self.leakyRelu(self.fromRGBLayers[-1](X))
+
+        print('Before Reduction: ', X.shape)
+
+        # Caution: we must explore the layers group in reverse order !
+        # Explore all scales before 0
+        mergeLayer = self.alpha > 0 and len(self.scaleLayers) > 1
+        shift = len(self.fromRGBLayers) - 2
+        for groupLayer in reversed(self.scaleLayers):
+
+            for layer in groupLayer:
+                X = self.leakyRelu(layer(X))
+
+            X = self.avg_pool2d(X)
+
+            if mergeLayer:
+                mergeLayer = False
+                X = self.alpha * y + (1-self.alpha) * X
+            print('Reduce: ',X.shape)
+            shift -= 1
+
+        # Now the scale 0
+
+        # Minibatch standard deviation
+        if self.mini_batch_sd:
+            X = mini_batch_sd(X)
+
+        X = self.leakyRelu(self.groupScaleZero[0](X))
+        print('Before linear reshape: ',X.shape)
+        X = tf.reshape(X, (X.shape[0], tf.math.reduce_prod(X.shape[1:])))
+        print('After linear reshape: ',X.shape)
+        X = self.leakyRelu(self.groupScaleZero[1](X))
+
+        out = self.decisionLayer(X)
+
+        if not getFeature:
+            return out
+
+        return out, X
+
+class ProgressiveGAN(object):
+    def __init__(self,
+                latent_dim=512,
+                level_0_channels=512,
+                init_bias_zero=True,
+                leaky_relu_leak=0.2,
+                per_channel_normalisation=True,
+                mini_batch_sd=False,
+                equalizedlR=True,
+                output_dim=3,
+                GDPP=False,
+                lambdaGP=0.
+                **kwargs):
+    
+        if not 'config' in vars(self):
+            self.config = BaseConfig()
+
+        self.config.level_0_channels = level_0_channels
+        self.config.init_bias_zero = init_bias_zero
+        self.config.leaky_relu_leak = leaky_relu_leak
+        self.config.depthOtherScales = []
+        self.config.per_channel_normalisation = per_channel_normalisation
+        self.config.alpha = 0
+        self.config.mini_batch_sd = mini_batch_sd
+        self.config.equalizedlR = equalizedlR
+        
+        self.config.latent_dim = latent_dim
+        self.config.output_dim = output_dim
+
+        self.config.GDPP = GDPP
+
+        # WGAN-GP
+        self.loss_criterion = WGANGP()
+        self.config.lambdaGP = lambdaGP
+
+        self.netD = self.getNetD()
+        self.netG = self.getNetG()
+
+    def infer(self, input, toCPU=True):
+        """
+        Generate some data given the input latent vector.
+        Args:
+            input (torch.tensor): input latent vector
+        """
+        if toCPU:
+            return tf.stop_gradient(self.netG(input)).cpu()
+        else:
+            return tf.stop_gradient(self.netG(input))
+
+    def getNetG(self):
+        gnet = PGGenerator(self.config.latent_dim,
+                        self.config.level_0_channels,
+                        init_bias_zero=self.config.init_bias_zero,
+                        leaky_relu_leak=self.config.leaky_relu_leak,
+                        normalization=self.config.per_channel_normalisation,
+                        activation=self.loss_criterion.activation,
+                        output_dim=self.config.output_dim,
+                        equalizedlR=self.config.equalizedlR)
+
+        # Add scales if necessary
+        for depth in self.config.depthOtherScales:
+            gnet.addScale(depth)
+
+        # If new scales are added, give the generator a blending layer
+        if self.config.depthOtherScales:
+            gnet.alpha = self.config.alpha
+
+        return gnet
+
+    def getNetD(self):
+        dnet = PGDiscriminator(self.config.level_0_channels,
+                            init_bias_zero=self.config.init_bias_zero,
+                            leaky_relu_leak=self.config.leaky_relu_leak,
+                            decision_layer_size=self.loss_criterion.decision_layer_size,
+                            mini_batch_sd=self.config.mini_batch_sd,
+                            input_dim=self.config.output_dim,
+                            equalizedlR=self.config.equalizedlR)
+
+        # Add scales if necessary
+        for depth in self.config.depthOtherScales:
+            dnet.addScale(depth)
+
+        # If new scales are added, give the discriminator a blending layer
+        if self.config.depthOtherScales:
+            dnet.alpha = self.config.alpha
+
+        return dnet
+
+    def addScale(self, new_level_channels):
+        """
+        Add a new scale to the model. The output resolution becomes twice
+        bigger.
+        """
+        self.netG = self.getNetG()
+        self.netD = self.getNetD()
+
+        self.netG.addScale(new_level_channels)
+        self.netD.addScale(new_level_channels)
+
+        self.config.depthOtherScales.append(new_level_channels)
+
+    def updateAlpha(self, newAlpha):
+        """
+        Update the blending factor alpha.
+        Args:
+            - alpha (float): blending factor (in [0,1]). 0 means only the
+                             highest resolution in considered (no blend), 1
+                             means the highest resolution is fully discarded.
+        """
+        print("Changing alpha to %.3f" % newAlpha)
+
+        self.getNetG().alpha = newAlpha
+        self.getNetD().alpha = newAlpha
+
+        self.config.alpha = newAlpha
+
+    def getSize(self):
+        """
+        Get output image size (W, H)
+        """
+        return self.getNetG().getOutputSize()
