@@ -4,12 +4,13 @@ Fully adapted from https://github.com/facebookresearch/pytorch_GAN_zoo
 '''
 from utils.config import BaseConfig
 
+# Scales are [4, 8, 16, 32, 64, 128, 256, 512, 1024]
+
 # Default configuration for ProgressiveGANTrainer
 _C = BaseConfig()
 
 # Maximum number of iteration at each scale
-_C.maxIterAtScale = [48000, 96000, 96000]
-
+_C.maxIterAtScale = [48000, 96000, 96000, 96000, 96000, 96000]
 
 # Blending mode.
 
@@ -37,21 +38,21 @@ _C.alphaJumpVals = [[], [1., 0.5, 0], [
 # If _C.alphaJumpMode == "linear", then the following fields should be completed
 
 # Number of jumps per scale
-_C.alphaNJumps = [0, 600, 600]
+_C.alphaNJumps = [0, 600, 600, 600, 600, 600]
 
 # Number of iterations between two jumps
-_C.alphaSizeJumps = [0, 32, 32]
+_C.alphaSizeJumps = [0, 32, 32, 32, 32, 32, 32]
 
 #############################################################
 
 # Depth of a convolutional layer for each scale
-_C.depthScales = [512, 512, 512]
+_C.depthScales = [256, 256, 128, 64, 32, 16]
 
 # Mini batch size
 _C.miniBatchSize = 16
 
 # Dimension of the latent vector
-_C.latent_dim = 512
+_C.latent_dim = 256
 
 # Should bias be initialized to zero ?
 _C.init_bias_zero = True

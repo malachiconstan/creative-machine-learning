@@ -418,6 +418,7 @@ class ProgressiveGAN(object):
                 output_dim=3,
                 GDPP=False,
                 lambdaGP=0.,
+                depthOtherScales = [],
                 **kwargs):
     
         if not 'config' in vars(self):
@@ -426,7 +427,7 @@ class ProgressiveGAN(object):
         self.config.level_0_channels = level_0_channels
         self.config.init_bias_zero = init_bias_zero
         self.config.leaky_relu_leak = leaky_relu_leak
-        self.config.depthOtherScales = []
+        self.config.depthOtherScales = depthOtherScales
         self.config.per_channel_normalisation = per_channel_normalisation
         self.config.alpha = 0
         self.config.mini_batch_sd = mini_batch_sd

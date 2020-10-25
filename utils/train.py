@@ -4,6 +4,7 @@ import datetime as dt
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import json
+import numpy as np
 
 from PIL import Image
 from IPython import display
@@ -184,11 +185,6 @@ class ProgressiveGANTrainer(object):
                  datapath,
                  discriminator_optimizer,
                  generator_optimizer,
-                 miniBatchScheduler=None,
-                #  datasetProfile=None,
-                 configScheduler=None,
-                #  useGPU=True,
-                #  visualisation=None,
                  loss_iter_evaluation=200,
                  save_iter=5000,
                  model_label="PGGAN",
@@ -225,18 +221,13 @@ class ProgressiveGANTrainer(object):
         self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
         self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
         self.chekpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
-        self.temp_config_path = os.path.join(self.chekpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
-        self.train_config_path = os.path.join(self.chekpoint_dir, f'{self.model_label}_{scale}_' + "_train_config.json")
+        self.train_config_path = os.path.join(self.chekpoint_dir, f'{model_label}_' + "_train_config.json")
 
-        self.configScheduler = {}
-        if configScheduler is not None:
-            self.configScheduler = {
-                int(key): value for key, value in configScheduler.items()}
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
 
-        self.miniBatchScheduler = {}
-        if miniBatchScheduler is not None:
-            self.miniBatchScheduler = {
-                int(x): value for x, value in miniBatchScheduler.items()}
+        if not os.path.exists(self.chekpoint_dir):
+            os.makedirs(self.chekpoint_dir)
 
         if config is None:
             config = {}
@@ -282,7 +273,7 @@ class ProgressiveGANTrainer(object):
         self.avgpool2d = tf.keras.layers.AveragePooling2D(pool_size=(2, 2), strides=None, padding='valid', data_format=None)
         self.upsampling2d = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation='nearest')        
         
-    def initModel(self):
+    def initModel(self, **kwargs):
         """
         Initialize the GAN model.
         """
@@ -297,7 +288,8 @@ class ProgressiveGANTrainer(object):
             equalizedlR = self.modelConfig.equalizedlR,
             output_dim = self.modelConfig.output_dim,
             GDPP = self.modelConfig.GDPP,
-            lambdaGP = self.modelConfig.lambdaGP
+            lambdaGP = self.modelConfig.lambdaGP,
+            **kwargs
         )
 
     def readTrainConfig(self, config, verbose=True):
@@ -491,16 +483,18 @@ class ProgressiveGANTrainer(object):
         """
 
         # Load the temp configuration
-        tmpConfig = json.load(self.temp_config_path)
+        with open(self.temp_config_path,'rb') as infile:
+            tmpConfig = json.load(infile)
         self.startScale = tmpConfig["scale"]
         self.startIter = tmpConfig["iter"]
 
         # Read the training configuration
-        trainConfig = json.load(self.train_config_path)
+        with open(self.train_config_path,'rb') as infile:
+            trainConfig = json.load(infile)
         self.readTrainConfig(trainConfig)
 
         # Re-initialize the model
-        self.initModel()exiexit
+        self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
         
         # Load saved checkpoint
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
@@ -515,6 +509,7 @@ class ProgressiveGANTrainer(object):
             - True if the training completed
             - False if the training was interrupted due to a divergent behavior
         """
+
         if restore:
             self.load_saved_training()
 
@@ -523,6 +518,9 @@ class ProgressiveGANTrainer(object):
 
         for scale in range(self.startScale, self.modelConfig.n_scales):
             print(f'Scale {scale} for size {self.modelConfig.size_scales[scale]} training begins')
+
+            # Define specific paths
+            self.temp_config_path = os.path.join(self.chekpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
             
             # Get train dataset at the correct image scale
             train_dataset = get_image_dataset(self.datapath,
@@ -537,7 +535,7 @@ class ProgressiveGANTrainer(object):
             self.step = 0
             if self.startIter > 0:
                 self.step = self.startIter
-                self.overall_steps = self.startIter
+                self.overall_steps = self.startIter + np.sum([self.modelConfig.maxIterAtScale[i] for i in range(0, self.startScale)])
                 self.startIter = 0
 
             shiftAlpha = 0
@@ -598,7 +596,7 @@ class ProgressiveGANTrainer(object):
             print('Dataset Length: ', len(dataset))
 
         start = time.time()
-        previous_step = self.step
+        previous_step = self.step, self.overall_steps
 
         for real_image_batch in dataset:
             self.step += 1
@@ -613,13 +611,6 @@ class ProgressiveGANTrainer(object):
             noise = tf.random.normal([real_image_batch.shape[0], self.modelConfig.latent_dim])
             
             self.train_steps[scale](real_images=real_image_batch, noise=noise, verbose=verbose)
-
-            # if self.modelConfig.lambdaGP > 0:
-            #     batch_size = real_image_batch.shape[0]
-            #     alpha = tf.random.uniform(shape=[batch_size, 1])
-            #     alpha = tf.reshape(tf.broadcast_to(alpha, shape=(batch_size, int(tf.size(real_image_batch)/batch_size))), shape=real_image_batch.shape)
-            #     interpolated_images = tf.Variable(alpha * real_image_batch + ((1 - alpha) * fake_image_batch))
-            #     self.apply_WGANGP_gradient_penalty(interpolated_images)
 
             # Write logged losses
             if self.overall_steps % self.loss_iter_evaluation == 0:
@@ -642,7 +633,7 @@ class ProgressiveGANTrainer(object):
 
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
-                self.save_check_point(scale, self.overall_steps, verbose=True)
+                self.save_check_point(scale, self.step, verbose=True)
 
             # Reset Losses
             for k in self.metrics:
@@ -653,7 +644,7 @@ class ProgressiveGANTrainer(object):
                     print('Max iterations reached')
                 return True
 
-        print(f'Time from step {previous_step} to {self.step} is {time.time()-start:.3f} sec')
+        print(f'Time from step {previous_step[0]}/{previous_step[1]} to {self.step}/{self.overall_steps} is {time.time()-start:.3f} sec')
 
         if verbose:
             print('Completed')
@@ -719,27 +710,3 @@ class ProgressiveGANTrainer(object):
 
         if return_generated_images:
             return generated_images
-
-    @tf.function
-    def apply_WGANGP_gradient_penalty(self, interpolated_images):
-        
-        # with tf.GradientTape() as disc_tape:
-
-        interpolated_output = tf.math.reduce_sum(self.model.netD(interpolated_images, training=True)[:, 0])
-
-        gradients = tf.gradients(interpolated_output, interpolated_images)
-
-        gradients = tf.reshape(gradients[0], shape=(interpolated_images.shape[0], -1))
-        # print(gradients)
-
-        gradients = tf.math.sqrt(tf.math.reduce_sum(gradients * gradients, axis=1))
-        print('Gradient: ', gradients)
-
-        gradient_penalty = self.modelConfig.lambdaGP * tf.math.reduce_sum((gradients - 1.0)**2)
-
-        gradients_of_discriminator = disc_tape.gradient(gradient_penalty, self.model.netD.trainable_variables)
-        print('Computed loss gradients for gradient penalty')
-        self.discriminator_optimizer.apply_gradients(zip(gradient_penalty, self.model.netD.trainable_variables))
-        print('Applied loss gradients for gradient penalty')
-
-        return gradients_of_discriminator
