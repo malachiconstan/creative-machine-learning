@@ -11,21 +11,21 @@ class WGANGP(object):
         self.activation = None
         self.decision_layer_size = 1
 
-    def getCriterion(self, input, status):
+    def getCriterion(self, y_pred, status):
         """
         Given an input tensor and its targeted status (detected as real or
         detected as fake) build the associated loss
         Args:
-            - input (Tensor): decision tensor build by the model's discrimator
+            - y_pred (Tensor): decision tensor build by the model's discrimator
             - status (bool): if True -> this tensor should have been detected
                              as a real input
                              else -> it shouldn't have
         """
         if status:
-            return -input[:, 0].sum()
-        return input[:, 0].sum()
+            return -1*tf.math.reduce_sum(y_pred[:, 0])
+        return tf.math.reduce_sum(y_pred[:, 0])
 
-def WGANGPGradientPenalty(input, fake, discriminator, weight, backward=True):
+def WGANGPGradientPenalty(real_images, fake_images, discriminator, weight):
     """
     Gradient penalty as described in
     "Improved Training of Wasserstein GANs"
@@ -39,27 +39,29 @@ def WGANGPGradientPenalty(input, fake, discriminator, weight, backward=True):
         - backward (bool): loss backpropagation
     """
 
-    batchSize = input.shape[0]
-    alpha = torch.rand(batchSize, 1)
-    alpha = alpha.expand(batchSize, int(input.nelement() /batchSize)).contiguous().view(input.size())
-    alpha = alpha.to(input.device)
-    interpolates = alpha * input + ((1 - alpha) * fake)
+    batch_size = real_images.shape[0]
+    # alpha = torch.rand(batchSize, 1)
+    alpha = tf.random.uniform(shape=[batch_size, 1])
+    alpha = tf.reshape(tf.broadcast_to(alpha, shape=(batch_size, int(tf.size(real_images)/batch_size))), shape=real_images.shape)
+    # alpha = alpha.expand(batchSize, int(input.nelement() /batch_size)).contiguous().view(input.size())
+    # alpha = alpha.to(input.device)
+    interpolated_images = tf.Variable(alpha * real_images + ((1 - alpha) * fake_images))
+    # interpolates = torch.autograd.Variable(interpolates, requires_grad=True)
 
-    interpolates = torch.autograd.Variable(
-        interpolates, requires_grad=True)
+    with tf.GradientTape() as tape:
+        interpolated_output = tf.math.reduce_sum(discriminator(interpolated_images)[:, 0])
 
-    decisionInterpolate = discriminator(interpolates, False)
-    decisionInterpolate = decisionInterpolate[:, 0].sum()
+    gradients = tape.gradient(interpolated_output, interpolated_images)
 
-    gradients = torch.autograd.grad(outputs=decisionInterpolate,
-                                    inputs=interpolates,
-                                    create_graph=True, retain_graph=True)
+    # gradients = torch.autograd.grad(outputs=decisionInterpolate,inputs=interpolates,create_graph=True, retain_graph=True)
 
-    gradients = gradients[0].view(batchSize, -1)
-    gradients = (gradients * gradients).sum(dim=1).sqrt()
-    gradient_penalty = (((gradients - 1.0)**2)).sum() * weight
+    gradients = tf.reshape(gradients[0], shape=(batch_size, -1)) 
 
-    if backward:
-        gradient_penalty.backward(retain_graph=True)
+    # gradients = gradients[0].view(batchSize, -1)
+    gradients = tf.math.sqrt(tf.math.reduce_sum(gradients * gradients, axis=1))
 
-    return gradient_penalty.item()
+    # gradients = ().sum(dim=1).sqrt()
+    # gradient_penalty = (((gradients - 1.0)**2)).sum() * weight
+    gradient_penalty = weight * tf.math.reduce_sum((gradients - 1.0)**2)
+
+    return gradient_penalty

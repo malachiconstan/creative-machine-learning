@@ -183,6 +183,9 @@ class PGGenerator(tf.keras.Model):
         self._alpha = value
 
     def call(self, X):
+
+        print('')
+        print('Calling Generator')
         ## Normalize the input
         if self.normalizationLayer is not None:
             X = self.normalizationLayer(X)
@@ -190,21 +193,18 @@ class PGGenerator(tf.keras.Model):
         X = tf.reshape(X,(X.shape[0], tf.math.reduce_prod(X.shape[1:])))
         # format layer
         X = self.leakyRelu(self.formatLayer(X))
-        print(X.shape)
         X = tf.reshape(X, (X.shape[0], 4, 4, self.level_0_channels))
-        print(X.shape)
 
         if self.normalizationLayer is not None:
             X = self.normalizationLayer(X)
         
-        print(X.shape)
         # Scale 0 (no upsampling)
         for convLayer in self.groupScale0:
             X = self.leakyRelu(convLayer(X))
             if self.normalizationLayer is not None:
                 X = self.normalizationLayer(X)
         
-        print(X.shape)
+
         # Dirty, find a better way
         if self.alpha > 0 and len(self.scaleLayers) == 1:
             y = self.toRGBLayers[-2](X)
@@ -233,6 +233,8 @@ class PGGenerator(tf.keras.Model):
 
         if self.generationActivation is not None:
             X = self.generationActivation(X)
+
+        print('')
 
         return X
 
@@ -338,6 +340,9 @@ class PGDiscriminator(tf.keras.Model):
         self.decisionLayer = EqualizedDense(decision_layer_size, equalized=self.equalizedlR, init_bias_zero=self.init_bias_zero)
 
     def call(self, X, getFeature = False):
+        
+        print('')
+        print('Calling Discriminator')
 
         # Alpha blending
         if self.alpha > 0 and len(self.fromRGBLayers) > 1:
@@ -380,6 +385,8 @@ class PGDiscriminator(tf.keras.Model):
 
         out = self.decisionLayer(X)
 
+        print('')
+
         if not getFeature:
             return out
 
@@ -396,7 +403,7 @@ class ProgressiveGAN(object):
                 equalizedlR=True,
                 output_dim=3,
                 GDPP=False,
-                lambdaGP=0.
+                lambdaGP=0.,
                 **kwargs):
     
         if not 'config' in vars(self):
@@ -494,7 +501,7 @@ class ProgressiveGAN(object):
                              highest resolution in considered (no blend), 1
                              means the highest resolution is fully discarded.
         """
-        print("Changing alpha to %.3f" % newAlpha)
+        print("Changing alpha to %.3f" % newAlpha) 
 
         self.getNetG().alpha = newAlpha
         self.getNetD().alpha = newAlpha

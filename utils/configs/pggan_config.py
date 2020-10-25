@@ -8,8 +8,9 @@ from utils.config import BaseConfig
 _C = BaseConfig()
 
 # Maximum number of iteration at each scale
-_C.maxIterAtScale = [48000, 96000, 96000,
-                     96000, 96000, 96000, 96000, 96000, 200000]
+_C.maxIterAtScale = [48000, 96000, 96000, 96000, 96000, 96000, 96000, 96000, 200000]
+_C.maxIterAtScale = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+
 
 # Blending mode.
 
