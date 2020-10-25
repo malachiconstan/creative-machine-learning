@@ -24,9 +24,9 @@ class WGANGP(object):
         assert len(y_pred.shape) == 2 and y_pred.shape[1] == 1, 'Shape of y pred should be of length 2, and axis-1 only has 1 value, i.e. [N, 1]'
         if status:
             # Wasserstein loss for real images is negative
-            return -1*tf.math.reduce_mean(y_pred[:, 0])
+            return -1*tf.math.reduce_sum(y_pred[:, 0])
         # Wasserstein loss for fake images is positive
-        return tf.math.reduce_mean(y_pred[:, 0])
+        return tf.math.reduce_sum(y_pred[:, 0])
 
 def WGANGPGradientPenalty(real_images, fake_images, discriminator, weight):
     """
