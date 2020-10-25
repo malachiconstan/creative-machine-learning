@@ -8,7 +8,8 @@ from utils.config import BaseConfig
 _C = BaseConfig()
 
 # Maximum number of iteration at each scale
-_C.maxIterAtScale = [48000, 96000, 96000]
+_C.maxIterAtScale = [48000, 96000, 96000, 96000, 96000, 96000, 96000, 96000, 200000]
+_C.maxIterAtScale = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
 
 # Blending mode.
@@ -37,15 +38,15 @@ _C.alphaJumpVals = [[], [1., 0.5, 0], [
 # If _C.alphaJumpMode == "linear", then the following fields should be completed
 
 # Number of jumps per scale
-_C.alphaNJumps = [0, 600, 600]
+_C.alphaNJumps = [0, 600, 600, 600, 600, 600, 600, 600, 600]
 
 # Number of iterations between two jumps
-_C.alphaSizeJumps = [0, 32, 32]
+_C.alphaSizeJumps = [0, 32, 32, 32, 32, 32, 32, 32, 32, 32]
 
 #############################################################
 
 # Depth of a convolutional layer for each scale
-_C.depthScales = [512, 512, 512]
+_C.depthScales = [512, 512, 512, 512, 256, 128, 64, 32, 16]
 
 # Mini batch size
 _C.miniBatchSize = 16
@@ -62,6 +63,9 @@ _C.per_channel_normalisation = True
 # Equalised learning rate
 _C.equalizedlR = True
 
+# Loss mode
+_C.lossMode = 'WGANGP'
+
 # Gradient penalty coefficient (WGANGP)
 _C.lambdaGP = 10.
 
@@ -75,7 +79,7 @@ _C.epsilonD = 0.001
 _C.mini_batch_sd = True
 
 # Base learning rate
-_C.base_learning_rate = 1e-4
+_C.base_learning_rate = 0.001
 
 # RGB or grey level output ?
 _C.output_dim = 3

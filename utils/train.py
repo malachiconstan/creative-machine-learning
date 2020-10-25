@@ -10,7 +10,7 @@ from IPython import display
 from copy import deepcopy
 
 from utils.configs.pggan_config import _C
-from utils.config import BaseConfig, getConfigFromDict
+from utils.config import BaseConfig, getConfigFromDict, getDictFromConfig
 from utils.models import ProgressiveGAN
 from utils.preprocessing import get_image_dataset
 from utils.losses import WGANGPGradientPenalty
@@ -189,15 +189,12 @@ class ProgressiveGANTrainer(object):
                  configScheduler=None,
                 #  useGPU=True,
                 #  visualisation=None,
-                 lossIterEvaluation=200,
+                 loss_iter_evaluation=200,
                  saveIter=5000,
                  checkPointDir=None,
-                 modelLabel="GAN",
-                 config=None,
-                 pathAttribDict=None,
-                 selectedAttributes=None,
-                 imagefolderDataset=False,
-                 ignoreAttribs=False):
+                 modelLabel="PGGAN",
+                 config=None
+                 ):
         """
         Args:
             - pathdb (string): path to the directorty containing the image
@@ -221,6 +218,15 @@ class ProgressiveGANTrainer(object):
                                      behavior is detected ?
         """
 
+        # Define directories
+        current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
+
+        self.datapath = datapath
+        self.log_dir = os.path.join(os.getcwd(),'pggan_logs')
+        self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
+        self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
+        self.chekpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
+
         self.configScheduler = {}
         if configScheduler is not None:
             self.configScheduler = {
@@ -231,23 +237,14 @@ class ProgressiveGANTrainer(object):
             self.miniBatchScheduler = {
                 int(x): value for x, value in miniBatchScheduler.items()}
 
-        # self.datasetProfile = {}
-        # if datasetProfile is not None:
-        #     self.datasetProfile = {
-        #         int(x): value for x, value in datasetProfile.items()}
-
-        self.datapath = datapath
-        
         if config is None:
             config = {}
 
         self.readTrainConfig(config)
 
         # Intern state
-        self.runningLoss = {}
         self.startScale = 0
         self.startIter = 0
-        self.lossProfile = []
 
         self.initModel()
 
@@ -255,22 +252,22 @@ class ProgressiveGANTrainer(object):
         self.discriminator_optimizer = discriminator_optimizer
 
         # Checkpoints ?
-        self.checkPointDir = checkPointDir
         self.modelLabel = modelLabel
         self.saveIter = saveIter
         self.pathLossLog = None
 
+        # Logging
+        self.loss_iter_evaluation = loss_iter_evaluation
+        self.metrics = dict(
+            discriminator_wasserstein_loss = tf.keras.metrics.Mean('discriminator_wasserstein_loss', dtype=tf.float32),
+            generator_wasserstein_loss = tf.keras.metrics.Mean('generator_wasserstein_loss', dtype=tf.float32),
+            discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
+            discriminator_loss = tf.keras.metrics.Mean('discriminator_loss', dtype=tf.float32),
+            generator_loss = tf.keras.metrics.Mean('generator_loss', dtype=tf.float32),
+        )
 
-        if self.checkPointDir is not None:
-            self.pathLossLog = os.path.abspath(os.path.join(self.checkPointDir,
-                                                            self.modelLabel
-                                                            + '_losses.pkl'))
-            self.pathRefVector = os.path.abspath(os.path.join(self.checkPointDir,
-                                                              self.modelLabel
-                                                              + '_refVectors.pt'))
-
-        # Loss printing
-        self.lossIterEvaluation = lossIterEvaluation
+        self.gen_summary_writer = tf.summary.create_file_writer(self.gen_log_dir)
+        self.dis_summary_writer = tf.summary.create_file_writer(self.dis_log_dir)
 
         # Low-res layers
         self.avgpool2d = tf.keras.layers.AveragePooling2D(pool_size=(2, 2), strides=None, padding='valid', data_format=None)
@@ -409,8 +406,6 @@ class ProgressiveGANTrainer(object):
                 self.indexJumpAlpha += 1
 
         if self.model.config.alpha > 0:
-            # low_res_real = F.avg_pool2d(input_real, (2, 2))
-            # low_res_real = F.upsample(low_res_real, scale_factor=2, mode='nearest')
             low_res_real = self.avgpool2d(input_real)
             low_res_real = self.upsampling2d(low_res_real)
 
@@ -448,8 +443,7 @@ class ProgressiveGANTrainer(object):
         the training's progression) at the given path
         """
 
-        outConfig = getDictFromConfig(
-            self.modelConfig, self.getDefaultConfig())
+        outConfig = getDictFromConfig(self.modelConfig, self.getDefaultConfig())
 
         if "alphaJumpMode" in outConfig:
             if outConfig["alphaJumpMode"] == "linear":
@@ -460,7 +454,7 @@ class ProgressiveGANTrainer(object):
         with open(outPath, 'w') as fp:
             json.dump(outConfig, fp, indent=4)
 
-    def train(self):
+    def train(self, verbose=False):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.
@@ -468,9 +462,9 @@ class ProgressiveGANTrainer(object):
             - True if the training completed
             - False if the training was interrupted due to a divergent behavior
         """
-        if self.checkPointDir is not None:
-            pathBaseConfig = os.path.join(self.checkPointDir, self.modelLabel + "_train_config.json")
-            self.saveBaseConfig(pathBaseConfig)
+        self.overall_steps = 0
+        if self.log_dir is not None:
+            self.saveBaseConfig(os.path.join(self.log_dir, self.modelLabel + "_train_config.json"))
 
         for scale in range(self.startScale, self.modelConfig.n_scales):
             print(f'Scale {scale} for size {self.modelConfig.size_scales[scale]} training begins')
@@ -482,37 +476,33 @@ class ProgressiveGANTrainer(object):
                                             batch_size=self.modelConfig.miniBatchSize,
                                             normalize=True)
             
-            print(f'Dataset for size {self.modelConfig.size_scales[scale]} obtained')
-            
-            # Get number of batches in the train dataset
-            number_batches = len(train_dataset)
+            if verbose:
+                print(f'Dataset for size {self.modelConfig.size_scales[scale]} obtained')
 
-            shiftIter = 0
+            self.step = 0
             if self.startIter > 0:
-                shiftIter = self.startIter
+                self.step = self.startIter
                 self.startIter = 0
 
             shiftAlpha = 0
 
             # While the shiftAlpha variable is less than the jumps of alpha in that scale and the iteration which the shiftAlpha corresponds to in that scale is less than the shiftIter, add 1 to shiftAlpha
             # Basically this tells us what is the level of alpha we should start at (the one right before the shiftIter)
-            while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < shiftIter:
+            while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < self.step:
                 shiftAlpha += 1
 
-            while shiftIter < self.modelConfig.maxIterAtScale[scale]:
+            while self.step < self.modelConfig.maxIterAtScale[scale]:
                 
                 # Set the index to set alpha to to the current shiftAlpha
                 self.indexJumpAlpha = shiftAlpha
                 
-                status = self.train_epoch(train_dataset, scale, shiftIter=shiftIter, maxIter=self.modelConfig.maxIterAtScale[scale])
+                status = self.train_epoch(train_dataset, scale, maxIter=self.modelConfig.maxIterAtScale[scale], verbose=verbose)
 
                 if not status:
                     return False
-
-                shiftIter += number_batches
                 
                 # Update shiftAlpha to the next step
-                while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < shiftIter:
+                while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < self.step:
                     shiftAlpha += 1
 
             # Save checkpoint TODO
@@ -532,8 +522,9 @@ class ProgressiveGANTrainer(object):
     def train_epoch(self,
                     dataset,
                     scale,
-                    shiftIter=0,
-                    maxIter=-1):
+                    maxIter=-1,
+                    verbose=True
+                    ):
         """
         Train the model on one epoch.
         Args:
@@ -549,25 +540,24 @@ class ProgressiveGANTrainer(object):
             be stopped
         """
 
-        i = shiftIter
-        print('Dataset Length: ', len(dataset))
+        if verbose:
+            print('Dataset Length: ', len(dataset))
+
+        start = time.time()
+        previous_step = self.step
 
         for real_image_batch in dataset:
-
-            print('Batch: ',i)
-        
-            # inputs_real = data[0]
-            # labels = data[1]
+            self.step += 1
+            self.overall_steps += 1
 
             if real_image_batch.shape[0] < self.modelConfig.miniBatchSize:
                 raise ValueError('Image batch shape less than mini_batch_size')
 
-            # Additionnal updates inside a scale
-            real_image_batch = self.inScaleUpdate(i, scale, real_image_batch)
-
-            i += 1
+            # Additional updates inside a scale
+            real_image_batch = self.inScaleUpdate(self.step, scale, real_image_batch)
+            noise = tf.random.normal([real_image_batch.shape[0], self.modelConfig.latent_dim])
             
-            self.train_steps[scale](real_image_batch)
+            self.train_steps[scale](real_images=real_image_batch, noise=noise, verbose=verbose)
 
             # if self.modelConfig.lambdaGP > 0:
             #     batch_size = real_image_batch.shape[0]
@@ -575,55 +565,59 @@ class ProgressiveGANTrainer(object):
             #     alpha = tf.reshape(tf.broadcast_to(alpha, shape=(batch_size, int(tf.size(real_image_batch)/batch_size))), shape=real_image_batch.shape)
             #     interpolated_images = tf.Variable(alpha * real_image_batch + ((1 - alpha) * fake_image_batch))
             #     self.apply_WGANGP_gradient_penalty(interpolated_images)
+
+            # Write logged losses
+            if self.overall_steps % self.loss_iter_evaluation == 0:
+
+                with self.gen_summary_writer.as_default():
+                    tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.overall_steps)
+
+                with self.dis_summary_writer.as_default():
+                    tf.summary.scalar('discriminator_wasserstein_loss', self.metrics['discriminator_wasserstein_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
+
+                # Save Images
+                predicted_image = self.model.netG(noise, training=False)
+                predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
+                with self.gen_summary_writer.as_default():
+                    tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
             
-            # raise Exception('Pause')
-
-            # Regular evaluation
-            # if i % self.lossIterEvaluation == 0:
-
-            #     # Reinitialize the losses
-            #     self.updateLossProfile(i)
-
-            #     print('[%d : %6d] loss G : %.3f loss D : %.3f' % (scale, i,
-            #           self.lossProfile[-1]["lossG"][-1],
-            #           self.lossProfile[-1]["lossD"][-1]))
-
-            #     self.resetRunningLosses()
-
-            #     if self.visualisation is not None:
-            #         self.sendToVisualization(inputs_real, scale)
-
-            # if self.checkPointDir is not None:
-            #     if i % self.saveIter == 0:
-            #         labelSave = self.modelLabel + ("_s%d_i%d" % (scale, i))
-            #         self.saveCheckpoint(self.checkPointDir,
-            #                             labelSave, scale, i)
-            if i == maxIter:
+            if self.step == maxIter:
+                if verbose:
+                    print('Max iterations reached')
                 return True
-        print('Completed')
+
+        print(f'Time from step {previous_step} to {self.step} is {time.time()-start:.3f} sec')
+
+        if verbose:
+            print('Completed')
 
         return True
     
     @tf.function
-    def train_step(self, real_images, return_generated_images=True):
-        # Generate noise image
-        noise = tf.random.normal([real_images.shape[0], self.modelConfig.latent_dim])
+    def train_step(self, real_images, noise, return_generated_images=True, verbose=False):
 
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
             
             # 1. Real Output + Wasserstein Loss
             real_predictions = self.model.netD(real_images, training=True)
             discriminator_wloss_real = self.model.loss_criterion.getCriterion(real_predictions, True)
-            print('Obtained Wasserstein Loss for Discriminator on REAL images')
+            if verbose:
+                print('Obtained Wasserstein Loss for Discriminator on REAL images')
 
             # 2. Fake Output + Wasserstein Loss
             generated_images = self.model.netG(noise, training=True)
             fake_predictions = self.model.netD(generated_images, training=True)
             discriminator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, False)
-            print('Obtained Wasserstein Loss for Discriminator on FAKE images')
+            if verbose:
+                print('Obtained Wasserstein Loss for Discriminator on FAKE images')
+            
             generator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, True)
-            print('Obtained Wasserstein Loss for Generator on FAKE images')
-
+            if verbose:
+                print('Obtained Wasserstein Loss for Generator on FAKE images')
+            
             # 3. Wasserstein Gradient Loss
             # if self.modelConfig.lambdaGP > 0:
                 # discriminator_gradient_loss = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
@@ -632,21 +626,33 @@ class ProgressiveGANTrainer(object):
             # 4. Epsilon Loss
             if self.modelConfig.epsilonD > 0:
                 discriminator_episilon_loss = tf.math.reduce_sum(real_predictions[:,0]**2) + self.modelConfig.epsilonD
-                print('Obtained Epsilon Loss for Discriminator')
+                if verbose:
+                    print('Obtained Epsilon Loss for Discriminator')
 
             total_generator_loss = generator_wloss_fake
             total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss
-            
-            # sdis_loss(disc_loss)
-            # sgen_loss(gen_loss)
-            # sdis_acc(tf.ones_like(real_output), real_output)
+
+            # Log losses
+            self.metrics['discriminator_wasserstein_loss'](discriminator_wloss_real + discriminator_wloss_fake)
+            self.metrics['discriminator_epsilon_loss'](discriminator_episilon_loss)
+            self.metrics['discriminator_loss'](total_discriminator_loss)
+
+            self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
+            self.metrics['generator_loss'](total_generator_loss)
 
         gradients_of_generator = gen_tape.gradient(total_generator_loss, self.model.netG.trainable_variables)
         gradients_of_discriminator = disc_tape.gradient(total_discriminator_loss, self.model.netD.trainable_variables)
-        print('Computed loss gradients')
+        
+        if verbose:
+            print('Computed loss gradients')
         self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.netG.trainable_variables))
         self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.netD.trainable_variables))
-        print('Applied loss gradients')
+        
+        if verbose:
+            print('Applied loss gradients')
+
+        if return_generated_images:
+            return generated_images
 
     @tf.function
     def apply_WGANGP_gradient_penalty(self, interpolated_images):

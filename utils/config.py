@@ -2,6 +2,8 @@
 Fully adapted from https://github.com/facebookresearch/pytorch_GAN_zoo
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 '''
+import numpy as np
+
 class BaseConfig():
     r"""
     An empty class used for configuration members
@@ -11,8 +13,12 @@ class BaseConfig():
         if orig is not None:
             print("cawet")
 
-        
-
+    def __repr__(self):
+        representative_string = ''
+        for k, v in self.__dict__.items():
+            if k not in ['iterAlphaJump','alphaJumpVals']:
+                representative_string += f'{k}: {v} \n'
+        return representative_string
 
 def getConfigFromDict(obj, inputDict, defaultConfig):
     r"""

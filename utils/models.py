@@ -182,10 +182,12 @@ class PGGenerator(tf.keras.Model):
 
         self._alpha = value
 
-    def call(self, X):
+    def call(self, X, verbose=False):
 
-        print('')
-        print('Calling Generator')
+        if verbose:
+            print('')
+            print('Calling Generator')
+        
         ## Normalize the input
         if self.normalizationLayer is not None:
             X = self.normalizationLayer(X)
@@ -204,12 +206,13 @@ class PGGenerator(tf.keras.Model):
             if self.normalizationLayer is not None:
                 X = self.normalizationLayer(X)
         
+        if verbose:
+            print('Before Upsampling: ', X.shape)
 
         # Dirty, find a better way
         if self.alpha > 0 and len(self.scaleLayers) == 1:
             y = self.toRGBLayers[-2](X)
             y = Upscale2d(y)
-            print('y',y.shape)
 
         # Upper scales
         for scale, layerGroup in enumerate(self.scaleLayers):
@@ -223,6 +226,7 @@ class PGGenerator(tf.keras.Model):
                 # For the final loop only
                 y = self.toRGBLayers[-2](X)
                 y = Upscale2d(y)
+            print('Upscale: ',X.shape)
 
         # To RGB (no alpha parameter for now)
         X = self.toRGBLayers[-1](X)
@@ -234,7 +238,8 @@ class PGGenerator(tf.keras.Model):
         if self.generationActivation is not None:
             X = self.generationActivation(X)
 
-        print('')
+        if verbose:
+            print('')
 
         return X
 
@@ -339,10 +344,11 @@ class PGDiscriminator(tf.keras.Model):
 
         self.decisionLayer = EqualizedDense(decision_layer_size, equalized=self.equalizedlR, init_bias_zero=self.init_bias_zero)
 
-    def call(self, X, getFeature = False):
+    def call(self, X, getFeature = False, verbose=False):
         
-        print('')
-        print('Calling Discriminator')
+        if verbose:
+            print('')
+            print('Calling Discriminator')
 
         # Alpha blending
         if self.alpha > 0 and len(self.fromRGBLayers) > 1:
@@ -352,7 +358,8 @@ class PGDiscriminator(tf.keras.Model):
         # From RGB layer
         X = self.leakyRelu(self.fromRGBLayers[-1](X))
 
-        print('Before Reduction: ', X.shape)
+        if verbose:
+            print('Before Reduction: ', X.shape)
 
         # Caution: we must explore the layers group in reverse order !
         # Explore all scales before 0
@@ -378,14 +385,18 @@ class PGDiscriminator(tf.keras.Model):
             X = mini_batch_sd(X)
 
         X = self.leakyRelu(self.groupScaleZero[0](X))
-        print('Before linear reshape: ',X.shape)
+        if verbose:
+            print('Before linear reshape: ',X.shape)
         X = tf.reshape(X, (X.shape[0], tf.math.reduce_prod(X.shape[1:])))
-        print('After linear reshape: ',X.shape)
+
+        if verbose:
+            print('After linear reshape: ',X.shape)
         X = self.leakyRelu(self.groupScaleZero[1](X))
 
         out = self.decisionLayer(X)
 
-        print('')
+        if verbose:
+            print('')
 
         if not getFeature:
             return out
