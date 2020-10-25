@@ -17,8 +17,8 @@ def get_options():
     parser = argparse.ArgumentParser()
 
     # General options. Change all other options in pggan_config.py
-    parser.add_argument('--save_iter', default=200, type=int, help='Number of epochs before saving')
-    parser.add_argument('--loss_iter_evaluation', default=5000, type=int, help='Number of epochs before saving an image')
+    parser.add_argument('--save_iter', default=5000, type=int, help='Number of epochs before saving')
+    parser.add_argument('--loss_iter_evaluation', default=200, type=int, help='Number of epochs before saving an image')
 
     # Optimizer options
     parser.add_argument('--glr', default=2e-4, type=float, help='Learning rate for generator')
@@ -26,11 +26,13 @@ def get_options():
     parser.add_argument('--beta1', default=0.5, type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.9, type=float, help='Adam optimizer beta2.')
 
+    parser.add_argument('--restore', action='store_true', help='Restore from last checkpoint')
+
     opt = parser.parse_args()
 
     # General options Asserts
-    assert opt.save_step > 0
-    assert opt.saveimg_step > 0
+    assert opt.save_iter > 0
+    assert opt.loss_iter_evaluation > 0
 
     # Optimizer options asserts
     assert opt.glr > 0
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     opt = get_options()
 
     data_directory = os.path.join(os.getcwd(),'data')
-    image_path_pattern = os.path.join(data_directory,'gallery_pavilion','*.jpeg')
+    image_path_pattern = os.path.join(data_directory,'google_pavilion','*.jpeg')
 
     generator_optimizer = keras.optimizers.Adam(opt.glr ,beta_1=opt.beta1, beta_2=opt.beta2)
     discriminator_optimizer = keras.optimizers.Adam(opt.dlr ,beta_1=opt.beta1, beta_2=opt.beta2)
@@ -58,4 +60,5 @@ if __name__ == '__main__':
 
     print(pggan_trainer.modelConfig)
 
-    pggan_trainer.train()
+    # print(opt.restore)
+    pggan_trainer.train(restore=opt.restore)
