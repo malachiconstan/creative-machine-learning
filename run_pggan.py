@@ -37,8 +37,8 @@ def get_options():
     # Optimizer options asserts
     assert opt.glr > 0
     assert opt.dlr > 0
-    assert opt.beta1 > 0
-    assert opt.beta2 > 0
+    assert opt.beta1 >= 0
+    assert opt.beta2 >= 0
 
     return opt
 
