@@ -226,7 +226,9 @@ class PGGenerator(tf.keras.Model):
                 # For the final loop only
                 y = self.toRGBLayers[-2](X)
                 y = Upscale2d(y)
-            print('Upscale: ',X.shape)
+
+            if verbose:
+                print('Upscale: ',X.shape)
 
         # To RGB (no alpha parameter for now)
         X = self.toRGBLayers[-1](X)
@@ -375,7 +377,8 @@ class PGDiscriminator(tf.keras.Model):
             if mergeLayer:
                 mergeLayer = False
                 X = self.alpha * y + (1-self.alpha) * X
-            print('Reduce: ',X.shape)
+            if verbose:
+                print('Reduce: ',X.shape)
             shift -= 1
 
         # Now the scale 0

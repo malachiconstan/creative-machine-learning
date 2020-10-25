@@ -190,9 +190,8 @@ class ProgressiveGANTrainer(object):
                 #  useGPU=True,
                 #  visualisation=None,
                  loss_iter_evaluation=200,
-                 saveIter=5000,
-                 checkPointDir=None,
-                 modelLabel="PGGAN",
+                 save_iter=5000,
+                 model_label="PGGAN",
                  config=None
                  ):
         """
@@ -226,6 +225,8 @@ class ProgressiveGANTrainer(object):
         self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
         self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
         self.chekpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
+        self.temp_config_path = os.path.join(self.chekpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+        self.train_config_path = os.path.join(self.chekpoint_dir, f'{self.model_label}_{scale}_' + "_train_config.json")
 
         self.configScheduler = {}
         if configScheduler is not None:
@@ -245,16 +246,23 @@ class ProgressiveGANTrainer(object):
         # Intern state
         self.startScale = 0
         self.startIter = 0
+        self.overall_steps = 0
 
         self.initModel()
 
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
 
-        # Checkpoints ?
-        self.modelLabel = modelLabel
-        self.saveIter = saveIter
-        self.pathLossLog = None
+        # Checkpoints
+        self.model_label = model_label
+        self.save_iter = save_iter
+        self.checkpoint = tf.train.Checkpoint(step =  tf.Variable(0), 
+            generator_optimizer=self.generator_optimizer,
+            discriminator_optimizer=self.discriminator_optimizer,
+            generator=self.model.netG,
+            discriminator=self.model.netD
+        )
+        self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.chekpoint_dir, max_to_keep=3)
 
         # Logging
         self.loss_iter_evaluation = loss_iter_evaluation
@@ -437,7 +445,7 @@ class ProgressiveGANTrainer(object):
 
         self.scaleSanityCheck()
     
-    def saveBaseConfig(self, outPath):
+    def saveBaseConfig(self):
         """
         Save the model basic configuration (the part that doesn't change with
         the training's progression) at the given path
@@ -451,10 +459,54 @@ class ProgressiveGANTrainer(object):
                 outConfig.pop("iterAlphaJump", None)
                 outConfig.pop("alphaJumpVals", None)
 
-        with open(outPath, 'w') as fp:
+        with open(self.train_config_path, 'w') as fp:
             json.dump(outConfig, fp, indent=4)
 
-    def train(self, verbose=False):
+    def save_check_point(self, scale, iter, verbose=True):
+        """
+        Save a checkpoint at the given directory. Please not that the basic
+        configuration won't be saved.
+        This function produces 2 files:
+        outDir/outLabel_tmp_config.json -> temporary config
+        outDir/outLabel -> networks' weights
+        """
+        save_path = self.checkpoint_manager.save()
+        if verbose:
+            print('Checkpoint step at: ',int(self.checkpoint.step))
+            print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
+
+        # Tmp Configuration
+        outConfig = {'scale': scale, 'iter': iter}
+
+        with open(self.temp_config_path, 'w') as fp:
+            json.dump(outConfig, fp, indent=4)
+        
+        if verbose:
+            print('Saved temp outconfig to: ',self.temp_config_path)
+
+    def load_saved_training(self):
+        """
+        Load a given checkpoint.
+        """
+
+        # Load the temp configuration
+        tmpConfig = json.load(self.temp_config_path)
+        self.startScale = tmpConfig["scale"]
+        self.startIter = tmpConfig["iter"]
+
+        # Read the training configuration
+        trainConfig = json.load(self.train_config_path)
+        self.readTrainConfig(trainConfig)
+
+        # Re-initialize the model
+        self.initModel()exiexit
+        
+        # Load saved checkpoint
+        self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
+        if self.checkpoint_manager.latest_checkpoint:
+            print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+
+    def train(self, restore=False, verbose=False):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.
@@ -462,9 +514,11 @@ class ProgressiveGANTrainer(object):
             - True if the training completed
             - False if the training was interrupted due to a divergent behavior
         """
-        self.overall_steps = 0
+        if restore:
+            self.load_saved_training()
+
         if self.log_dir is not None:
-            self.saveBaseConfig(os.path.join(self.log_dir, self.modelLabel + "_train_config.json"))
+            self.saveBaseConfig()
 
         for scale in range(self.startScale, self.modelConfig.n_scales):
             print(f'Scale {scale} for size {self.modelConfig.size_scales[scale]} training begins')
@@ -482,6 +536,7 @@ class ProgressiveGANTrainer(object):
             self.step = 0
             if self.startIter > 0:
                 self.step = self.startIter
+                self.overall_steps = self.startIter
                 self.startIter = 0
 
             shiftAlpha = 0
@@ -549,6 +604,7 @@ class ProgressiveGANTrainer(object):
         for real_image_batch in dataset:
             self.step += 1
             self.overall_steps += 1
+            self.checkpoint.step.assign_add(1)
 
             if real_image_batch.shape[0] < self.modelConfig.miniBatchSize:
                 raise ValueError('Image batch shape less than mini_batch_size')
@@ -583,6 +639,14 @@ class ProgressiveGANTrainer(object):
                 predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
                 with self.gen_summary_writer.as_default():
                     tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
+
+            # Save Checkpoint
+            if self.overall_steps % self.save_iter == 0:
+                self.save_check_point(scale, self.overall_steps, verbose=True)
+
+            # Reset Losses
+            for k in self.metrics:
+                self.metrics[k].reset_states()
             
             if self.step == maxIter:
                 if verbose:
