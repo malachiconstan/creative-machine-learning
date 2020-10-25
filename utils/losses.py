@@ -21,9 +21,12 @@ class WGANGP(object):
                              as a real input
                              else -> it shouldn't have
         """
+        assert len(y_pred.shape) == 2 and y_pred.shape[1] == 1, 'Shape of y pred should be of length 2, and axis-1 only has 1 value, i.e. [N, 1]'
         if status:
-            return -1*tf.math.reduce_sum(y_pred[:, 0])
-        return tf.math.reduce_sum(y_pred[:, 0])
+            # Wasserstein loss for real images is negative
+            return -1*tf.math.reduce_mean(y_pred[:, 0])
+        # Wasserstein loss for fake images is positive
+        return tf.math.reduce_mean(y_pred[:, 0])
 
 def WGANGPGradientPenalty(real_images, fake_images, discriminator, weight):
     """
@@ -49,13 +52,13 @@ def WGANGPGradientPenalty(real_images, fake_images, discriminator, weight):
     with tf.GradientTape() as gradient_penalty_tape:
         gradient_penalty_tape.watch(interpolated)
         # 2. Get the discriminator output for this interpolated image.
-        interpolated_prediction = self.discriminator(interpolated, training=True)
+        interpolated_prediction = discriminator(interpolated, training=True)
 
     # 3. Calculate the gradients w.r.t to this interpolated image.
-    gradient = gp_tape.gradient(pred, [interpolated])[0]
+    gradient = gradient_penalty_tape.gradient(interpolated_prediction, [interpolated])[0]
     # 4. Calcuate the norm of the gradients
-    gradient_norm = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
-    gradient_penalty = tf.reduce_mean((norm - 1.0) ** 2)
+    gradient_norm = tf.sqrt(tf.reduce_sum(tf.square(gradient), axis=[1, 2, 3]))
+    gradient_penalty = tf.reduce_mean((gradient_norm - 1.0) ** 2)
     return gradient_penalty
     
     # alpha = torch.rand(batchSize, 1)
