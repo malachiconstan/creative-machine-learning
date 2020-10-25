@@ -621,7 +621,8 @@ class ProgressiveGANTrainer(object):
             # 3. Wasserstein Gradient Penalty Loss
             if self.modelConfig.lambdaGP > 0:
                 discriminator_gradient_penalty = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
-                print('Obtained Wasserstein Gradient Penalty for Discriminator')
+                if verbose:
+                    print('Obtained Wasserstein Gradient Penalty for Discriminator')
 
             # 4. Epsilon Loss
             if self.modelConfig.epsilonD > 0:
