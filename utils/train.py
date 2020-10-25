@@ -268,6 +268,7 @@ class ProgressiveGANTrainer(object):
         self.loss_iter_evaluation = loss_iter_evaluation
         self.metrics = dict(
             discriminator_wasserstein_loss = tf.keras.metrics.Mean('discriminator_wasserstein_loss', dtype=tf.float32),
+            discriminator_wasserstein_gradient_penalty = tf.keras.metrics.Mean('discriminator_wasserstein_gradient_penalty', dtype=tf.float32),
             generator_wasserstein_loss = tf.keras.metrics.Mean('generator_wasserstein_loss', dtype=tf.float32),
             discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
             discriminator_loss = tf.keras.metrics.Mean('discriminator_loss', dtype=tf.float32),
@@ -560,8 +561,6 @@ class ProgressiveGANTrainer(object):
                 while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < self.step:
                     shiftAlpha += 1
 
-            # Save checkpoint TODO
-
             # If final scale then don't add anymore layers
             if scale == self.modelConfig.n_scales - 1:
                 break
@@ -631,6 +630,7 @@ class ProgressiveGANTrainer(object):
 
                 with self.dis_summary_writer.as_default():
                     tf.summary.scalar('discriminator_wasserstein_loss', self.metrics['discriminator_wasserstein_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
 
@@ -682,10 +682,11 @@ class ProgressiveGANTrainer(object):
             if verbose:
                 print('Obtained Wasserstein Loss for Generator on FAKE images')
             
-            # 3. Wasserstein Gradient Loss
-            # if self.modelConfig.lambdaGP > 0:
-                # discriminator_gradient_loss = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
-                # print('Obtained Wasserstein Gradient Loss for Discriminator')
+            # 3. Wasserstein Gradient Penalty Loss
+            if self.modelConfig.lambdaGP > 0:
+                discriminator_gradient_penalty = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
+                if verbose:
+                    print('Obtained Wasserstein Gradient Penalty for Discriminator')
 
             # 4. Epsilon Loss
             if self.modelConfig.epsilonD > 0:
@@ -694,10 +695,11 @@ class ProgressiveGANTrainer(object):
                     print('Obtained Epsilon Loss for Discriminator')
 
             total_generator_loss = generator_wloss_fake
-            total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss
+            total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss + discriminator_gradient_penalty
 
             # Log losses
             self.metrics['discriminator_wasserstein_loss'](discriminator_wloss_real + discriminator_wloss_fake)
+            self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
             self.metrics['discriminator_epsilon_loss'](discriminator_episilon_loss)
             self.metrics['discriminator_loss'](total_discriminator_loss)
 
