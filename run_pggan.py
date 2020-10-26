@@ -21,8 +21,8 @@ def get_options():
     parser.add_argument('--loss_iter_evaluation', default=200, type=int, help='Number of epochs before saving an image')
 
     # Optimizer options
-    parser.add_argument('--glr', default=1e-3, type=float, help='Learning rate for generator')
-    parser.add_argument('--dlr', default=1e-3, type=float, help='Learning rate for discriminator')
+    parser.add_argument('--glr', default=1e-4, type=float, help='Learning rate for generator')
+    parser.add_argument('--dlr', default=1e-4, type=float, help='Learning rate for discriminator')
     parser.add_argument('--beta1', default=0., type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.99, type=float, help='Adam optimizer beta2.')
 
@@ -60,5 +60,12 @@ if __name__ == '__main__':
 
     print(pggan_trainer.modelConfig)
 
+    try:
+        from google.colab import drive
+        colab = True
+        print('Training in colab environement')
+    except ModuleNotFoundError:
+        colab = False
+
     # print(opt.restore)
-    pggan_trainer.train(restore=opt.restore)
+    pggan_trainer.train(restore=opt.restore, colab=colab)

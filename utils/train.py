@@ -220,14 +220,14 @@ class ProgressiveGANTrainer(object):
         self.log_dir = os.path.join(os.getcwd(),'pggan_logs')
         self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
         self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
-        self.chekpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
-        self.train_config_path = os.path.join(self.chekpoint_dir, f'{model_label}_' + "_train_config.json")
+        self.checkpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
+        self.train_config_path = os.path.join(self.checkpoint_dir, f'{model_label}_' + "_train_config.json")
 
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
-        if not os.path.exists(self.chekpoint_dir):
-            os.makedirs(self.chekpoint_dir)
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
 
         if config is None:
             config = {}
@@ -253,7 +253,7 @@ class ProgressiveGANTrainer(object):
             generator=self.model.netG,
             discriminator=self.model.netD
         )
-        self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.chekpoint_dir, max_to_keep=3)
+        self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.checkpoint_dir, max_to_keep=3)
 
         # Logging
         self.loss_iter_evaluation = loss_iter_evaluation
@@ -455,7 +455,7 @@ class ProgressiveGANTrainer(object):
         with open(self.train_config_path, 'w') as fp:
             json.dump(outConfig, fp, indent=4)
 
-    def save_check_point(self, scale, iter, verbose=True):
+    def save_check_point(self, scale, iter, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
         """
         Save a checkpoint at the given directory. Please not that the basic
         configuration won't be saved.
@@ -476,6 +476,17 @@ class ProgressiveGANTrainer(object):
         
         if verbose:
             print('Saved temp outconfig to: ',self.temp_config_path)
+
+        if save_to_gdrive:
+            from utils.drive_helper import copy_to_gdrive
+
+            if not os.path.exists(g_drive_path):
+                if not os.path.exists('/content/drive/My Drive/'):
+                    raise NotADirectoryError('Drive not mounted')
+                os.makedirs(g_drive_path)
+
+            copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=os.path.join(g_drive_path,'checkpoints.zip'))
+            print('Saved to ',g_drive_path)
 
     def load_saved_training(self):
         """
@@ -501,7 +512,7 @@ class ProgressiveGANTrainer(object):
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
 
-    def train(self, restore=False, verbose=False):
+    def train(self, restore=False, colab=False, verbose=False):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.
@@ -509,6 +520,7 @@ class ProgressiveGANTrainer(object):
             - True if the training completed
             - False if the training was interrupted due to a divergent behavior
         """
+        self.colab = colab
 
         if restore:
             self.load_saved_training()
@@ -520,7 +532,7 @@ class ProgressiveGANTrainer(object):
             print(f'Scale {scale} for size {self.modelConfig.size_scales[scale]} training begins')
 
             # Define specific paths
-            self.temp_config_path = os.path.join(self.chekpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+            self.temp_config_path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
             
             # Get train dataset at the correct image scale
             train_dataset = get_image_dataset(self.datapath,
@@ -633,7 +645,7 @@ class ProgressiveGANTrainer(object):
 
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
-                self.save_check_point(scale, self.step, verbose=True)
+                self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab)
 
             # Reset Losses
             for k in self.metrics:

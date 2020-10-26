@@ -20,3 +20,16 @@ def extract_data_g_drive(g_drive_path, repo_name='creative-machine-learning'):
         print('Extraction complete')
     else:
         raise FileNotFoundError
+
+def copy_to_gdrive(local_path, g_drive_path='/content/drive/My Drive/CML/checkpoints.zip'):
+    '''
+    Helper function to extract folder from colab and save to gdrive. Drive must be mounted
+    :params
+        str local_path: string to local folder
+        str g_drive_path: output zip folder
+    '''
+    zipf = zipfile.ZipFile(g_drive_path,'w', zipfile.ZIP_DEFLATED)
+    for root, dirs, files in os.walk(local_path):
+        for file in files:
+            zipf.write(os.path.join(root, file))
+    zipf.close()
