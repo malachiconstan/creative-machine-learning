@@ -488,10 +488,14 @@ class ProgressiveGANTrainer(object):
             copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=os.path.join(g_drive_path,'checkpoints.zip'))
             print('Saved to ',g_drive_path)
 
-    def load_saved_training(self):
+    def load_saved_training(self, load_from_g_drive=False):
         """
         Load a given checkpoint.
-        """
+        """ 
+        if self.colab and load_from_g_drive:
+            from utils.drive_helper import extract_data_g_drive
+            extract_data_g_drive('CML/checkpoints.zip', mounted=True, extracting_checkpoints=True)
+            print('Extracted checkpoints from colab')
 
         # Load the temp configuration
         with open(self.temp_config_path,'rb') as infile:
@@ -512,7 +516,7 @@ class ProgressiveGANTrainer(object):
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
 
-    def train(self, restore=False, colab=False, verbose=False):
+    def train(self, restore=False, colab=False, load_from_g_drive=True, verbose=False):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.
@@ -523,7 +527,7 @@ class ProgressiveGANTrainer(object):
         self.colab = colab
 
         if restore:
-            self.load_saved_training()
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
         if self.log_dir is not None:
             self.saveBaseConfig()

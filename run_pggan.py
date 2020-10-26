@@ -67,5 +67,4 @@ if __name__ == '__main__':
     except ModuleNotFoundError:
         colab = False
 
-    # print(opt.restore)
     pggan_trainer.train(restore=opt.restore, colab=colab)
