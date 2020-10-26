@@ -498,6 +498,14 @@ class ProgressiveGANTrainer(object):
             print('Extracted checkpoints from colab')
 
         # Load the temp configuration
+        # Find latest scale file
+        scale = 0
+        for scale in range(self.modelConfig.n_scales,0,-1):
+            path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+            if os.path.exists(path):
+                self.temp_config_path = path
+                break
+
         with open(self.temp_config_path,'rb') as infile:
             tmpConfig = json.load(infile)
         self.startScale = tmpConfig["scale"]
@@ -647,6 +655,11 @@ class ProgressiveGANTrainer(object):
                 with self.gen_summary_writer.as_default():
                     tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
 
+                # Take a look at real images
+                real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+                with self.dis_summary_writer.as_default():
+                    tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.overall_steps)
+
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
                 self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab)
@@ -668,7 +681,7 @@ class ProgressiveGANTrainer(object):
         return True
     
     @tf.function
-    def train_step(self, real_images, noise, return_generated_images=True, verbose=False):
+    def train_step(self, real_images, noise, return_generated_images=False, verbose=False):
 
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
             
