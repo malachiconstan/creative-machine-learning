@@ -500,7 +500,7 @@ class ProgressiveGANTrainer(object):
         # Load the temp configuration
         # Find latest scale file
         scale = 0
-        for scale in range(self.modelConfig.n_scales,0,-1):
+        for scale in range(self.modelConfig.n_scales-1,-1,-1):
             path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
             if os.path.exists(path):
                 self.temp_config_path = path
