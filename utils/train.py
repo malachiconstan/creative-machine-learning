@@ -524,7 +524,7 @@ class ProgressiveGANTrainer(object):
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
 
-    def train(self, restore=False, colab=False, load_from_g_drive=True, verbose=False):
+    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.

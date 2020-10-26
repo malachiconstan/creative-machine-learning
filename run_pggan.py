@@ -27,6 +27,7 @@ def get_options():
     parser.add_argument('--beta2', default=0.99, type=float, help='Adam optimizer beta2.')
 
     parser.add_argument('--restore', action='store_true', help='Restore from last checkpoint')
+    parser.add_argument('--restore_gdrive', action='store_true', help='Restore from last checkpoint in gdrive')
 
     opt = parser.parse_args()
 
@@ -67,4 +68,4 @@ if __name__ == '__main__':
     except ModuleNotFoundError:
         colab = False
 
-    pggan_trainer.train(restore=opt.restore, colab=colab)
+    pggan_trainer.train(restore=opt.restore, colab=colab, load_from_g_drive=opt.restore_gdrive)
