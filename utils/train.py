@@ -485,8 +485,13 @@ class ProgressiveGANTrainer(object):
                     raise NotADirectoryError('Drive not mounted')
                 os.makedirs(g_drive_path)
 
-            copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=os.path.join(g_drive_path,'checkpoints.zip'))
-            print('Saved to ',g_drive_path)
+            checkpoint_path = os.path.join(g_drive_path,'checkpoints.zip')
+            logs_path = os.path.join(g_drive_path,'logs.zip')
+
+            copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path))
+            copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
+            print('Checkpoints Saved to ',checkpoint_path)
+            print('Logs Saved to ',logs_path)
 
     def load_saved_training(self, load_from_g_drive=False):
         """
@@ -501,7 +506,9 @@ class ProgressiveGANTrainer(object):
         # Find latest scale file
         scale = 0
         for scale in range(self.modelConfig.n_scales-1,-1,-1):
+            print(scale)
             path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+            print(path)
             if os.path.exists(path):
                 self.temp_config_path = path
                 break
