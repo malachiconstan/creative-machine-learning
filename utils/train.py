@@ -488,7 +488,7 @@ class ProgressiveGANTrainer(object):
             checkpoint_path = os.path.join(g_drive_path,'checkpoints.zip')
             logs_path = os.path.join(g_drive_path,'logs.zip')
 
-            copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path))
+            copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path)
             copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
             print('Checkpoints Saved to ',checkpoint_path)
             print('Logs Saved to ',logs_path)
