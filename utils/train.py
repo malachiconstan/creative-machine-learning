@@ -540,6 +540,7 @@ class ProgressiveGANTrainer(object):
             - False if the training was interrupted due to a divergent behavior
         """
         self.colab = colab
+        self.train_start_time = time.time()
 
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
@@ -680,7 +681,7 @@ class ProgressiveGANTrainer(object):
                     print('Max iterations reached')
                 return True
 
-        print(f'Time from step {previous_step[0]}/{previous_step[1]} to {self.step}/{self.overall_steps} is {time.time()-start:.3f} sec')
+        print(f'Time from step {previous_step[0]}/{previous_step[1]} to {self.step}/{maxIter}, {self.overall_steps} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}')
 
         if verbose:
             print('Completed')

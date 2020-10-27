@@ -46,13 +46,13 @@ _C.alphaSizeJumps = [0, 32, 32, 32, 32, 32, 32]
 #############################################################
 
 # Depth of a convolutional layer for each scale
-_C.depthScales = [256, 256, 128, 64, 32, 16]
+_C.depthScales = [512, 512, 512, 512, 256, 128]
 
 # Mini batch size
 _C.miniBatchSize = 16
 
 # Dimension of the latent vector
-_C.latent_dim = 256
+_C.latent_dim = 512
 
 # Should bias be initialized to zero ?
 _C.init_bias_zero = True

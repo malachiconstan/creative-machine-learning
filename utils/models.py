@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
+import tensorflow_addons as tfa
 
 from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, Upscale2d, mini_batch_sd
 from utils.config import BaseConfig
@@ -53,6 +54,117 @@ class Discriminator(tf.keras.Model):
 
             layers.Flatten(),
             layers.Dense(1)
+        ])
+    
+    def call(self, X):
+        X = self.body(X)
+
+        return X
+class DownSampleBlock(tf.keras.Model):
+    def __init__(self,
+                filters,
+                size,
+                apply_instance_norm=True
+                ):
+        super(DownSampleBlock, self).__init__(name = 'Downsample_Block')
+        self.apply_instance_norm = apply_instance_norm
+
+        self.conv = tf.keras.layers.Conv2D(filters, size, strides=2, padding='same', kernel_initializer=tf.random_normal_initializer(0.,0.02), use_bias=False)
+        self.instance_norm = tfa.layers.InstanceNormalization()        
+        self.relu = tf.keras.layers.LeakyReLU()
+
+    def call(self, X):
+        X = self.conv(X)
+        if self.apply_instance_norm:
+            X = self.instance_norm(X)
+        X = self.relu(X)
+        return X
+
+
+class UpSampleBlock(tf.keras.Model):
+    def __init__(self,
+                filters,
+                size,
+                apply_dropout=False
+                ):
+        super(UpSampleBlock, self).__init__(name = 'Upsample_Block')
+        self.apply_dropout = apply_dropout
+
+        self.conv = tf.keras.layers.Conv2DTranspose(filters, size, strides=2, padding='same', kernel_initializer=tf.random_normal_initializer(0.,0.02), use_bias=False)
+        self.instance_norm = tfa.layers.InstanceNormalization()
+        self.dropout = tf.keras.layers.Dropout(0.5)
+        self.relu = tf.keras.layers.LeakyReLU()
+
+    def call(self, X):
+        X = self.conv(X)
+        X = self.instance_norm(X)
+        if self.apply_dropout:
+            X = self.dropout(X)
+        X = self.relu(X)
+        return X
+
+class CGGenerator(tf.keras.Model):
+    def __init__(self, latent_dim, name = 'Cycle_GANG', output_channels=3, **kwargs):
+        super(CGGenerator, self).__init__(name = name, **kwargs)
+
+        self.input = tf.keras.layers.Input(shape=[256,256,3])
+
+        self.down_stack = [
+            DownSampleBlock(64,4,apply_instancenorm=False), # (?, 128, 128, 64)
+            DownSampleBlock(128,4), # (?, 64, 64, 128)
+            DownSampleBlock(256,4), # (?, 32, 32, 256)
+            DownSampleBlock(512,4), # (?, 16, 16, 512)
+            DownSampleBlock(512,4), # (?, 8, 8, 512)
+            DownSampleBlock(512,4), # (?, 4, 4, 512)
+            DownSampleBlock(512,4), # (?, 2, 2, 512)
+            DownSampleBlock(512,4), # (?, 1, 1, 512)
+        ]
+
+        self.up_stack = [
+            UpSampleBlock(512,4,apply_dropout=True), # (?, 2, 2, 512)
+            UpSampleBlock(512,4,apply_dropout=True), # (?, 4, 4, 512)
+            UpSampleBlock(512,4,apply_dropout=True), # (?, 8, 8, 512)
+            UpSampleBlock(512,4),                    # (?, 16, 16, 512)
+            UpSampleBlock(256,4),                    # (?, 32, 32, 256)
+            UpSampleBlock(128,4),                    # (?, 64, 64, 128)
+            UpSampleBlock(64,4),                     # (?, 128, 128, 64)
+        ]
+
+        self.last_layer = tf.keras.layers.Conv2DTranspose(output_channels,4,2,padding='same',kernel_initializer=tf.random_normal_initializer(0.,0.02),activation='tanh')
+    
+    def call(self, X):
+        X = self.input(X)
+        
+        skips = []
+        for dn in self.down_stack:
+            X = dn(X)
+            skips.append(X)
+
+        skips = reversed(skips[:-1])
+
+        for up, skip in zip(self.up_stack,skips):
+            X = up(X)
+            X = tf.keras.layers.Concatenate()([X,skip]) 
+        
+        X = self.last_layer(X)
+
+        return X
+
+class CGDiscriminator(tf.keras.Model):
+    def __init__(self, latent_dim, name = 'Cycle_GAND', **kwargs):
+        super(CGDiscriminator, self).__init__(name = name, **kwargs)
+
+        self.body = tf.keras.Sequential([
+            tf.keras.layers.Input(shape=[256,256,3]),
+            DownSampleBlock(64, 4, False),
+            DownSampleBlock(128, 4),
+            DownSampleBlock(256, 4),
+            tf.keras.layers.ZeroPadding2D(),
+            tf.keras.layers.Conv2D(512,4,strides=1,kernel_initializer=tf.random_normal_initializer(0.,0.02),use_bias=False),
+            tfa.layers.InstanceNormalization(),
+            tf.keras.layers.LeakyReLU(),
+            tf.keras.layers.ZeroPadding2D(),
+            tf.keras.layers.Conv2D(1,4,strides=1,kernel_initializer=tf.random_normal_initializer(0.,0.02))
         ])
     
     def call(self, X):
