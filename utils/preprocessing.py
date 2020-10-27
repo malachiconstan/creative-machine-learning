@@ -77,22 +77,16 @@ def random_jitter(img,img_height,img_width):
     jit_img = tf.image.random_flip_left_right(jit_img)
     return jit_img
 
-def normalize(img): # for tanh rnage of (-1,1)
-    norm_img = (img/127.5)-1
-    return norm_img
-
 def load_img(img_file,img_height,img_width,train,normalize):
     img = load_single(img_file)
     if train:
         img = random_jitter(img,img_height,img_width)
     
     if normalize:
-        img = normalize(img)
+        img = (img/127.5)-1
     return img
 
-def get_cgan_image_datasets(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True):
+def get_cgan_image_datasets(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True,train=True):
     list_dataset = tf.data.Dataset.list_files(file_pattern)
-    train_dataset = list_dataset.map(lambda x: load_img(x,img_height,img_width,train=True,normalize=normalize), num_parallel_calls=tf.data.experimental.AUTOTUNE).cache().shuffle(batch_size).batch(batch_size)
-    test_dataset = list_dataset.map(lambda x: load_img(x,img_height,img_width,train=False,normalize=normalize), num_parallel_calls=tf.data.experimental.AUTOTUNE).cache().shuffle(batch_size).batch(batch_size)
-
-    return train_dataset, test_dataset
+    dataset = list_dataset.map(lambda x: load_img(x,img_height,img_width,train=train,normalize=normalize), num_parallel_calls=tf.data.experimental.AUTOTUNE).cache().shuffle(batch_size).batch(batch_size)
+    return dataset

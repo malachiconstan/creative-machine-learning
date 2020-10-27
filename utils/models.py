@@ -66,7 +66,7 @@ class DownSampleBlock(tf.keras.Model):
                 size,
                 apply_instance_norm=True
                 ):
-        super(DownSampleBlock, self).__init__(name = 'Downsample_Block')
+        super(DownSampleBlock, self).__init__()
         self.apply_instance_norm = apply_instance_norm
 
         self.conv = tf.keras.layers.Conv2D(filters, size, strides=2, padding='same', kernel_initializer=tf.random_normal_initializer(0.,0.02), use_bias=False)
@@ -87,7 +87,7 @@ class UpSampleBlock(tf.keras.Model):
                 size,
                 apply_dropout=False
                 ):
-        super(UpSampleBlock, self).__init__(name = 'Upsample_Block')
+        super(UpSampleBlock, self).__init__()
         self.apply_dropout = apply_dropout
 
         self.conv = tf.keras.layers.Conv2DTranspose(filters, size, strides=2, padding='same', kernel_initializer=tf.random_normal_initializer(0.,0.02), use_bias=False)
@@ -104,13 +104,13 @@ class UpSampleBlock(tf.keras.Model):
         return X
 
 class CGGenerator(tf.keras.Model):
-    def __init__(self, latent_dim, name = 'Cycle_GANG', output_channels=3, **kwargs):
+    def __init__(self, name = 'Cycle_GANG', output_channels=3, **kwargs):
         super(CGGenerator, self).__init__(name = name, **kwargs)
 
-        self.input = tf.keras.layers.Input(shape=[256,256,3])
+        # self.input_layer = tf.keras.layers.Input(shape=[256,256,3])
 
         self.down_stack = [
-            DownSampleBlock(64,4,apply_instancenorm=False), # (?, 128, 128, 64)
+            DownSampleBlock(64,4,apply_instance_norm=False), # (?, 128, 128, 64)
             DownSampleBlock(128,4), # (?, 64, 64, 128)
             DownSampleBlock(256,4), # (?, 32, 32, 256)
             DownSampleBlock(512,4), # (?, 16, 16, 512)
@@ -133,7 +133,7 @@ class CGGenerator(tf.keras.Model):
         self.last_layer = tf.keras.layers.Conv2DTranspose(output_channels,4,2,padding='same',kernel_initializer=tf.random_normal_initializer(0.,0.02),activation='tanh')
     
     def call(self, X):
-        X = self.input(X)
+        # X = self.input_layer(X)
         
         skips = []
         for dn in self.down_stack:
@@ -151,7 +151,7 @@ class CGGenerator(tf.keras.Model):
         return X
 
 class CGDiscriminator(tf.keras.Model):
-    def __init__(self, latent_dim, name = 'Cycle_GAND', **kwargs):
+    def __init__(self, name = 'Cycle_GAND', **kwargs):
         super(CGDiscriminator, self).__init__(name = name, **kwargs)
 
         self.body = tf.keras.Sequential([

@@ -7,9 +7,9 @@ import datetime as dt
 import argparse
 
 from PIL import Image
-from utils.preprocessing import random_image_sample, get_image_dataset
-from utils.models import Generator, Discriminator
-from utils.train import train
+from utils.preprocessing import random_image_sample, get_image_dataset, get_cgan_image_datasets
+from utils.models import Generator, Discriminator, CGGenerator, CGDiscriminator
+from utils.train import train, CycleGANTrainer
 
 import matplotlib.pyplot as plt
 
@@ -32,6 +32,8 @@ def get_options():
     parser.add_argument('--beta1', default=0.5, type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.5, type=float, help='Adam optimizer beta2.')
     parser.add_argument('--gamma', default=0.9999, type=float, help='Exponential LR scheduler gamma discount factor.')
+    parser.add_argument('--cgan', action='store_true', help='Run Cycle GAN')
+    parser.add_argument('--cgan_restore', action='store_true', help='Restore Cycle GAN from checkpoint')
 
     opt = parser.parse_args()
 
@@ -55,21 +57,57 @@ def get_options():
 if __name__ == '__main__':
     opt = get_options()
 
-    data_directory = os.path.join(os.getcwd(),'data')
-    # image_path_pattern = os.path.join(data_directory,'gallery_pavilion','*.jpeg')
+    if opt.cgan:
+        data_directory = os.path.join(os.getcwd(),'data','FACADES_UNPAIRED')
 
-    train_dataset = get_image_dataset(os.path.join(data_directory,'google_pavilion','*.jpeg'), opt.img_height, opt.img_height, opt.batch_size)
+        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.jpg'), 256, 256, 1, train=True)
+        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.jpg'), 256, 256, 1, train=False)
 
-    generator = Generator(latent_dim = opt.latent_dim)
-    discriminator = Discriminator()
+        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.jpg'), 256, 256, 1, train=True)
+        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.jpg'), 256, 256, 1, train=False)
 
-    generator.build((opt.batch_size,opt.latent_dim))
-    discriminator.build((opt.batch_size,opt.img_height,opt.img_height,3))
+        generator_a2b = CGGenerator()
+        generator_b2a = CGGenerator()
+        discriminator_a = CGDiscriminator()
+        discriminator_b = CGDiscriminator()
 
-    generator_optimizer = keras.optimizers.Adam(opt.glr)
-    discriminator_optimizer = keras.optimizers.Adam(opt.dlr)
+        generator_a2b.build((1, 256, 256, 3))
+        generator_b2a.build((1, 256, 256, 3))
+        discriminator_a.build((1, 256,256,3))
+        discriminator_b.build((1, 256,256,3))
 
-    train(train_dataset, generator, discriminator, generator_optimizer, discriminator_optimizer, opt.epochs, opt.batch_size, opt.latent_dim, data_directory,False,opt.save_step,opt.saveimg_step)
+        generator_a2b_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5) 
+        generator_b2a_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5) 
+        discriminator_a_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+        discriminator_b_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+
+        cgan_trainer = CycleGANTrainer(
+            train_datasets = (train_datasetA, train_datasetB),
+            test_datasets = (test_datasetA, test_datasetB),
+            generators = (generator_a2b, generator_b2a),
+            discriminators = (discriminator_a, discriminator_b),
+            discriminator_optimizers = (discriminator_a_optimizer, discriminator_b_optimizer),
+            generator_optimizers = (generator_a2b_optimizer, generator_b2a_optimizer),
+            epochs=40,
+        )
+
+        cgan_trainer.train(restore = opt.cgan_restore)
+
+    else:
+        data_directory = os.path.join(os.getcwd(),'data')
+
+        train_dataset = get_image_dataset(os.path.join(data_directory,'google_pavilion','*.jpeg'), opt.img_height, opt.img_height, opt.batch_size)
+
+        generator = Generator(latent_dim = opt.latent_dim)
+        discriminator = Discriminator()
+
+        generator.build((opt.batch_size,opt.latent_dim))
+        discriminator.build((opt.batch_size,opt.img_height,opt.img_height,3))
+
+        generator_optimizer = keras.optimizers.Adam(opt.glr)
+        discriminator_optimizer = keras.optimizers.Adam(opt.dlr)
+
+        train(train_dataset, generator, discriminator, generator_optimizer, discriminator_optimizer, opt.epochs, opt.batch_size, opt.latent_dim, data_directory,False,opt.save_step,opt.saveimg_step)
 
 
 

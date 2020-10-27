@@ -60,29 +60,18 @@ def WGANGPGradientPenalty(real_images, fake_images, discriminator, weight):
     gradient_norm = tf.sqrt(tf.reduce_sum(tf.square(gradient), axis=[1, 2, 3]))
     gradient_penalty = tf.reduce_mean((gradient_norm - 1.0) ** 2)
     return gradient_penalty
-    
-    # alpha = torch.rand(batchSize, 1)
-    # alpha = tf.random.uniform(shape=[batch_size, 1])
-    # alpha = tf.reshape(tf.broadcast_to(alpha, shape=(batch_size, int(tf.size(real_images)/batch_size))), shape=real_images.shape)
-    # # alpha = alpha.expand(batchSize, int(input.nelement() /batch_size)).contiguous().view(input.size())
-    # # alpha = alpha.to(input.device)
-    # interpolated_images = tf.Variable(alpha * real_images + ((1 - alpha) * fake_images))
-    # # interpolates = torch.autograd.Variable(interpolates, requires_grad=True)
 
-    # with tf.GradientTape() as tape:
-    #     interpolated_output = tf.math.reduce_sum(discriminator(interpolated_images)[:, 0])
+def cggan_discriminator_loss(real_images, generated_images):
+    real_loss = tf.keras.losses.binary_crossentropy(tf.ones_like(real_images), real_images, from_logits=True)
+    fake_loss = tf.keras.losses.binary_crossentropy(tf.zeros_like(generated_images), generated_images, from_logits=True)
+    total_loss = real_loss + fake_loss
+    return total_loss
 
-    # gradients = tape.gradient(interpolated_output, interpolated_images)
+def cggan_generator_loss(generated_images):
+    return tf.keras.losses.binary_crossentropy(tf.ones_like(generated_images), generated_images, from_logits=True)
 
-    # # gradients = torch.autograd.grad(outputs=decisionInterpolate,inputs=interpolates,create_graph=True, retain_graph=True)
+def cycle_loss(real_image, cycled_image, l=10):
+    return l*tf.math.reduce_mean(tf.abs(real_image-cycled_image))
 
-    # gradients = tf.reshape(gradients[0], shape=(batch_size, -1)) 
-
-    # # gradients = gradients[0].view(batchSize, -1)
-    # gradients = tf.math.sqrt(tf.math.reduce_sum(gradients * gradients, axis=1))
-
-    # # gradients = ().sum(dim=1).sqrt()
-    # # gradient_penalty = (((gradients - 1.0)**2)).sum() * weight
-    # gradient_penalty = weight * tf.math.reduce_sum((gradients - 1.0)**2)
-
-    # return gradient_penalty
+def identity_loss(real_image, same_image, l=10):
+    return 0.5*l*tf.math.reduce_mean(tf.abs(real_image-same_image))

@@ -14,7 +14,7 @@ from utils.configs.pggan_config import _C
 from utils.config import BaseConfig, getConfigFromDict, getDictFromConfig
 from utils.models import ProgressiveGAN
 from utils.preprocessing import get_image_dataset
-from utils.losses import WGANGPGradientPenalty
+from utils.losses import WGANGPGradientPenalty, cggan_discriminator_loss, cggan_generator_loss, identity_loss, cycle_loss
 
 def discriminator_loss(real_output, fake_output):
     real_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([real_output.shape[0],1],0.7,1.2), real_output, from_logits=True) # set noise to 1
@@ -170,6 +170,180 @@ def train(dataset,
     display.clear_output(wait=True)
     generate_and_save_images(generator,epoch,seed,gen_summary_writer)
 
+class CycleGANTrainer(object):
+    def __init__(self,
+                train_datasets,
+                test_datasets,
+                generators,
+                discriminators,
+                discriminator_optimizers,
+                generator_optimizers,
+                epochs=40,
+                save_epoch=5,
+                model_label="Cgan"
+                ):
+
+        # Define Directories
+        current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
+
+        self.log_dir = os.path.join(os.getcwd(),'cgan_logs')
+        self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
+        self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
+        self.checkpoint_dir = os.path.join(os.getcwd(),'cgan_checkpoints')
+
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+
+        # Datasets
+        self.train_datasets = train_datasets
+        self.test_datasets = test_datasets
+
+        # Optimizers and Models
+        self.generator_optimizers = generator_optimizers
+        self.discriminator_optimizers = discriminator_optimizers
+        self.generators = generators
+        self.discriminators = discriminators
+
+        # Losses
+        self.generator_loss = cggan_generator_loss
+        self.discriminator_loss = cggan_discriminator_loss
+        self.cycle_loss = cycle_loss
+        self.identity_loss = identity_loss
+
+        # Hyperparams
+        self.epochs = epochs
+
+        # Logging
+        self.metrics = dict(
+            discriminator_a_loss = tf.keras.metrics.Mean('discriminator_a_loss', dtype=tf.float32),
+            discriminator_b_loss = tf.keras.metrics.Mean('discriminator_b_loss', dtype=tf.float32),
+            generator_a2b_loss = tf.keras.metrics.Mean('generator_a2b_loss', dtype=tf.float32),
+            generator_b2a_loss = tf.keras.metrics.Mean('generator_b2a_loss', dtype=tf.float32),
+        )
+
+        self.gen_summary_writer = tf.summary.create_file_writer(self.gen_log_dir)
+        self.dis_summary_writer = tf.summary.create_file_writer(self.dis_log_dir)
+
+        # Checkpoints
+        self.checkpoint = tf.train.Checkpoint(generator_a2b=self.generators[0],
+                                        generator_b2a=self.generators[1],
+                                        discriminator_a=self.discriminators[0],
+                                        discriminator_b=self.discriminators[1],
+                                        generator_a2b_optimizer=self.generator_optimizers[0],
+                                        generator_b2a_optimizer=self.generator_optimizers[1],
+                                        discriminator_a_optimizer=self.discriminator_optimizers[0],
+                                        discriminator_b_optimizer=self.discriminator_optimizers[1]
+                                        )
+
+        self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint,self.checkpoint_dir,max_to_keep=5)
+
+    def generate_images(self, model, test_input, epoch):
+        prediction = model(test_input)
+            
+        plt.figure(figsize=(15, 15))
+
+        display_list = [test_input[0], prediction[0]]
+        title = ['Input Image', 'Predicted Image']
+
+        for i in range(2):
+            plt.subplot(1, 2, i+1)
+            plt.title(title[i])
+            plt.imshow(display_list[i] * 0.5 + 0.5)
+            plt.axis('off')
+            plt.savefig(output_dir+'/training_{}.png'.format(epoch)) 
+        plt.show()
+
+    def train(self, restore=False):
+
+        if restore:
+            self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
+            if self.checkpoint_manager.latest_checkpoint:
+                print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+        
+        for epoch in range(self.epochs):
+            start = time.time()
+            for img_a, img_b in tf.data.Dataset.zip(self.train_datasets):
+                self.train_step(img_a,img_b)
+            
+            # Log Losses
+            with self.gen_summary_writer.as_default():
+                tf.summary.scalar('generator_a2b_loss', self.metrics['generator_a2b_loss'].result(), step=epoch)
+                tf.summary.scalar('generator_b2a_loss', self.metrics['generator_b2a_loss'].result(), step=epoch)
+
+            with self.dis_summary_writer.as_default():
+                tf.summary.scalar('discriminator_a_loss', self.metrics['discriminator_a_loss'].result(), step=epoch)
+                tf.summary.scalar('discriminator_b_loss', self.metrics['discriminator_b_loss'].result(), step=epoch)
+
+            # Save Images
+            img_b = self.generators[0](img_a, training=False)
+            img_b = img_b[:, :, :, :]* 0.5 + 0.5
+            img_a = img_a[:, :, :, :]* 0.5 + 0.5
+            with self.gen_summary_writer.as_default():
+                tf.summary.image('Image A', img_a, max_outputs=5, step=epoch)
+                tf.summary.image('Image B', img_b, max_outputs=5, step=epoch)
+
+            if epoch % self.save_epoch:
+                save_path = self.checkpoint_manager.save()
+                print('Checkpoint step at: ',int(self.checkpoint.step))
+                print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
+
+            # Reset Losses
+            for k in self.metrics:
+                self.metrics[k].reset_states()
+
+            print(f'Epoch {epoch} took {time.time()-start:.3f} sec')
+
+    @tf.function
+    def train_step(self, real_a,real_b):
+        with tf.GradientTape(persistent=True) as tape:
+
+            fake_b = self.generators[0](real_a,training=True)
+            cycled_a = self.generators[1](fake_b,training=True)
+
+            fake_a = self.generators[1](real_b,training=True)
+            cycled_b = self.generators[0](fake_a,training=True)
+
+            same_a = self.generators[1](real_a,training=True)
+            same_b = self.generators[0](real_b,training=True)
+
+            disc_real_a = self.discriminators[0](real_a,training=True)
+            disc_real_b = self.discriminators[1](real_b,training=True)
+
+            disc_fake_a = self.discriminators[0](fake_a,training=True)
+            disc_fake_b = self.discriminators[1](fake_b,training=True)
+
+            gen_a2b_loss = self.generator_loss(disc_fake_b)
+            gen_b2a_loss = self.generator_loss(disc_fake_a)
+
+            total_cycle_loss = self.cycle_loss(real_a,cycled_a) + self.cycle_loss(real_b,cycled_b)
+
+            # Total losses for all 4 
+            total_gen_a2b_loss = gen_a2b_loss + total_cycle_loss + self.identity_loss(real_b,same_b)
+            total_gen_b2a_loss = gen_b2a_loss + total_cycle_loss + self.identity_loss(real_a,same_a)
+
+            disc_a_loss = self.discriminator_loss(disc_real_a,disc_fake_a)
+            disc_b_loss = self.discriminator_loss(disc_real_b,disc_fake_b)
+
+            # Log losses
+            self.metrics['discriminator_a_loss'](disc_a_loss)
+            self.metrics['discriminator_b_loss'](disc_b_loss)
+            self.metrics['generator_a2b_loss'](total_gen_a2b_loss)
+            self.metrics['generator_b2a_loss'](total_gen_b2a_loss)
+        
+        # Calculate graidents for all 4
+        gen_a2b_grad = tape.gradient(total_gen_a2b_loss,self.generators[0].trainable_variables)
+        gen_b2a_grad = tape.gradient(total_gen_b2a_loss,self.generators[1].trainable_variables)
+        disc_a_grad = tape.gradient(disc_a_loss,self.discriminators[0].trainable_variables)
+        disc_b_grad = tape.gradient(disc_b_loss,self.discriminators[1].trainable_variables)
+
+        # Apply graidents to all 4 optimizer
+        self.generator_optimizers[0].apply_gradients(zip(gen_a2b_grad,self.generators[0].trainable_variables))
+        self.generator_optimizers[1].apply_gradients(zip(gen_b2a_grad,self.generators[1].trainable_variables))
+        self.discriminator_optimizers[0].apply_gradients(zip(disc_a_grad,self.discriminators[0].trainable_variables))
+        self.discriminator_optimizers[1].apply_gradients(zip(disc_b_grad,self.discriminators[1].trainable_variables))
 
 class ProgressiveGANTrainer(object):
     """
