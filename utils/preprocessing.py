@@ -31,7 +31,7 @@ def decode_img(img,img_height,img_width, augment):
     img = tf.image.decode_jpeg(img, channels=3)
     # resize the image to the desired size
     if augment:
-        img = tf.image.resize(img,[1.5*int(img_height),1.5*int(img_width)], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+        img = tf.image.resize(img,[int(1.5*img_height),int(1.5*img_width)], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
         if tf.random.uniform(())>0.5:
             img = tf.image.flip_left_right(img)
     else:    
