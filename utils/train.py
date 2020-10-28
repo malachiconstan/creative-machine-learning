@@ -706,7 +706,7 @@ class ProgressiveGANTrainer(object):
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
 
-    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False):
+    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.
@@ -716,6 +716,7 @@ class ProgressiveGANTrainer(object):
         """
         self.colab = colab
         self.train_start_time = time.time()
+        self.g_drive_path = g_drive_path
 
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
@@ -846,7 +847,7 @@ class ProgressiveGANTrainer(object):
 
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
-                self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab)
+                self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
 
             # Reset Losses
             for k in self.metrics:
