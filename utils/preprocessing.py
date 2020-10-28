@@ -26,21 +26,33 @@ def random_image_sample(paths, chosen_images = 10):
             ax[j].yaxis.set_visible(False)
     fig.suptitle('Sampled Images')
 
-def decode_img(img,img_height,img_width):
+def decode_img(img,img_height,img_width, augment):
     # convert the compressed string to a 3D uint8 tensor
     img = tf.image.decode_jpeg(img, channels=3)
     # resize the image to the desired size
-    img = tf.image.central_crop(img, 1)
+    if augment:
+        img = tf.image.resize(img,[1.5*int(img_height),1.5*int(img_width)], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+        if tf.random.uniform(())>0.5:
+            img = tf.image.flip_left_right(img)
+    else:    
+        img = tf.image.central_crop(img, 1)
     return tf.image.resize(img, [img_height, img_width])
 
-def process_path(file_path,img_height,img_width,normalize=True):
+def process_path(file_path,img_height,img_width,normalize=True,augment=True):
     # load the raw data from the file as a string
     img = tf.io.read_file(file_path)
-    img = decode_img(img,img_height,img_width)
+    img = decode_img(img,img_height,img_width,augment=augment)
+    # resize for cropping
+    
+    # random crop
+    
+    # random flip between left/right
+    
     if normalize:
         img = tf.cast(img,tf.float32)
         img = (img/127.5)-1
     return img
+
 
 def configure_for_performance(ds, batch_size):
     ds = ds.cache()
@@ -50,7 +62,7 @@ def configure_for_performance(ds, batch_size):
     return ds
 
 
-def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True):
+def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True,augment=True):
     '''
     Function to return a train dataset from glob file pattern
     '''
@@ -59,13 +71,13 @@ def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32,no
     image_count = len(list_dataset)
     list_dataset = list_dataset.shuffle(image_count, reshuffle_each_iteration=False)
     train_dataset = list_dataset.skip(0) # No validation required for GAN
-    train_dataset = train_dataset.map(lambda x: process_path(x,img_height,img_width,normalize), num_parallel_calls=AUTOTUNE)
+    train_dataset = train_dataset.map(lambda x: process_path(x,img_height,img_width,normalize,augment), num_parallel_calls=AUTOTUNE)
     train_dataset = configure_for_performance(train_dataset, batch_size)
 
     return train_dataset
 
 # Functions for cycle GAN
-def load_single(img_file): 
+def load_single(img_file):
     img = tf.io.read_file(img_file)
     img = tf.image.decode_jpeg(img)
     img = tf.cast(img, tf.float32)
@@ -81,7 +93,7 @@ def load_img(img_file,img_height,img_width,train,normalize):
     img = load_single(img_file)
     if train:
         img = random_jitter(img,img_height,img_width)
-    
+
     if normalize:
         img = (img/127.5)-1
     return img
