@@ -139,7 +139,7 @@ if __name__ == '__main__':
             discriminators = (discriminator_a, discriminator_b),
             discriminator_optimizers = (discriminator_a_optimizer, discriminator_b_optimizer),
             generator_optimizers = (generator_a2b_optimizer, generator_b2a_optimizer),
-            epochs=40,
+            epochs=opt.epochs,
         )
 
         cgan_trainer.train(restore = opt.cgan_restore, colab = colab, load_from_g_drive=opt.restore_gdrive, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML')

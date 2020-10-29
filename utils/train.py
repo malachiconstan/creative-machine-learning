@@ -257,7 +257,7 @@ class CycleGANTrainer(object):
             plt.savefig(output_dir+'/training_{}.png'.format(epoch)) 
         plt.show()
 
-    def train(self, restore=False, colab=False, load_from_g_drive=False, save_to_gdrive=False, g_drive_path = '/content/drive/My Drive/CML'):
+    def train(self, restore=False, colab=False, load_from_g_drive=False, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
 
         if restore:
             if colab and load_from_g_drive:
@@ -298,7 +298,7 @@ class CycleGANTrainer(object):
                 tf.summary.image('Image B', img_b, max_outputs=5, step=epoch)
                 tf.summary.image('Image B -> A', img_a_from_b, max_outputs=5, step=epoch)
 
-            if epoch % self.save_epoch:
+            if epoch % self.save_epoch == 0:
                 save_path = self.checkpoint_manager.save()
                 print('Checkpoint step at: ',int(self.checkpoint.step))
                 print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
