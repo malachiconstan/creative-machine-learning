@@ -60,11 +60,11 @@ if __name__ == '__main__':
     if opt.cgan:
         data_directory = os.path.join(os.getcwd(),'data','FACADES_UNPAIRED')
 
-        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.jpg'), 256, 256, 1, train=True)
-        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.jpg'), 256, 256, 1, train=False)
+        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.jpeg'), 256, 256, 1, train=True)
+        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.jpeg'), 256, 256, 1, train=False)
 
-        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.jpg'), 256, 256, 1, train=True)
-        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.jpg'), 256, 256, 1, train=False)
+        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.jpeg'), 256, 256, 1, train=True)
+        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.jpeg'), 256, 256, 1, train=False)
 
         generator_a2b = CGGenerator()
         generator_b2a = CGGenerator()
@@ -76,8 +76,8 @@ if __name__ == '__main__':
         discriminator_a.build((1, 256,256,3))
         discriminator_b.build((1, 256,256,3))
 
-        generator_a2b_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5) 
-        generator_b2a_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5) 
+        generator_a2b_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+        generator_b2a_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
         discriminator_a_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
         discriminator_b_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 
