@@ -5,6 +5,7 @@ import tensorflow.keras as keras
 import tensorflow.keras.layers as layers
 import datetime as dt
 import argparse
+import numpy as np
 
 from PIL import Image
 from utils.preprocessing import random_image_sample, get_image_dataset, get_cgan_image_datasets
