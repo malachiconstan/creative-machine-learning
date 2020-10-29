@@ -179,7 +179,7 @@ class CycleGANTrainer(object):
                 discriminator_optimizers,
                 generator_optimizers,
                 epochs=40,
-                save_epoch=5,
+                save_epoch=1,
                 model_label="Cgan"
                 ):
 
