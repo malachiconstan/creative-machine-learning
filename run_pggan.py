@@ -68,4 +68,4 @@ if __name__ == '__main__':
     except ModuleNotFoundError:
         colab = False
 
-    pggan_trainer.train(restore=opt.restore, colab=colab, load_from_g_drive=opt.restore_gdrive)
+    pggan_trainer.train(restore=opt.restore, colab=colab, load_from_g_drive=opt.restore_gdrive, g_drive_path = '/content/drive/My Drive/CML')

@@ -432,7 +432,8 @@ class ProgressiveGANTrainer(object):
         # Logging
         self.loss_iter_evaluation = loss_iter_evaluation
         self.metrics = dict(
-            discriminator_wasserstein_loss = tf.keras.metrics.Mean('discriminator_wasserstein_loss', dtype=tf.float32),
+            discriminator_wasserstein_loss_real = tf.keras.metrics.Mean('discriminator_wasserstein_loss_real', dtype=tf.float32),
+            discriminator_wasserstein_loss_fake = tf.keras.metrics.Mean('discriminator_wasserstein_loss_fake', dtype=tf.float32),
             discriminator_wasserstein_gradient_penalty = tf.keras.metrics.Mean('discriminator_wasserstein_gradient_penalty', dtype=tf.float32),
             generator_wasserstein_loss = tf.keras.metrics.Mean('generator_wasserstein_loss', dtype=tf.float32),
             discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
@@ -705,7 +706,7 @@ class ProgressiveGANTrainer(object):
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
 
-    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False):
+    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
         """
         Launch the training. This one will stop if a divergent behavior is
         detected.
@@ -715,6 +716,7 @@ class ProgressiveGANTrainer(object):
         """
         self.colab = colab
         self.train_start_time = time.time()
+        self.g_drive_path = g_drive_path
 
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
@@ -826,7 +828,8 @@ class ProgressiveGANTrainer(object):
                     tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.overall_steps)
 
                 with self.dis_summary_writer.as_default():
-                    tf.summary.scalar('discriminator_wasserstein_loss', self.metrics['discriminator_wasserstein_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_wasserstein_loss_fake', self.metrics['discriminator_wasserstein_loss_fake'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
@@ -844,7 +847,7 @@ class ProgressiveGANTrainer(object):
 
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
-                self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab)
+                self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
 
             # Reset Losses
             for k in self.metrics:
@@ -869,45 +872,46 @@ class ProgressiveGANTrainer(object):
             
             # 1. Real Output + Wasserstein Loss
             real_predictions = self.model.netD(real_images, training=True)
-            # discriminator_wloss_real = self.model.loss_criterion.getCriterion(real_predictions, True)
+            discriminator_wloss_real = self.model.loss_criterion.getCriterion(real_predictions, True)
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on REAL images')
 
             # 2. Fake Output + Wasserstein Loss
             generated_images = self.model.netG(noise, training=True)
             fake_predictions = self.model.netD(generated_images, training=True)
-            # discriminator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, False)
+            discriminator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, False)
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on FAKE images')
             
-            # generator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, True)
+            generator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, True)
             if verbose:
                 print('Obtained Wasserstein Loss for Generator on FAKE images')
             
             # 3. Wasserstein Gradient Penalty Loss
-            # if self.modelConfig.lambdaGP > 0:
-                # discriminator_gradient_penalty = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
-                # if verbose:
-                    # print('Obtained Wasserstein Gradient Penalty for Discriminator')
+            if self.modelConfig.lambdaGP > 0:
+                discriminator_gradient_penalty = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
+                if verbose:
+                    print('Obtained Wasserstein Gradient Penalty for Discriminator')
 
             # 4. Epsilon Loss
-            # if self.modelConfig.epsilonD > 0:
-                # discriminator_episilon_loss = tf.math.reduce_sum(real_predictions[:,0]**2) + self.modelConfig.epsilonD
-                # if verbose:
-                    # print('Obtained Epsilon Loss for Discriminator')
-            total_discriminator_loss = discriminator_loss(real_predictions, fake_predictions)
-            total_generator_loss = generator_loss(fake_predictions)
+            if self.modelConfig.epsilonD > 0:
+                discriminator_episilon_loss = tf.math.reduce_sum(real_predictions[:,0]**2) + self.modelConfig.epsilonD
+                if verbose:
+                    print('Obtained Epsilon Loss for Discriminator')
+            # total_discriminator_loss = discriminator_loss(real_predictions, fake_predictions)
+            # total_generator_loss = generator_loss(fake_predictions)
 
-            # total_generator_loss = generator_wloss_fake
-            # total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss + discriminator_gradient_penalty
+            total_generator_loss = generator_wloss_fake
+            total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss + discriminator_gradient_penalty
 
             # Log losses
-            # self.metrics['discriminator_wasserstein_loss'](discriminator_wloss_real + discriminator_wloss_fake)
-            # self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
-            # self.metrics['discriminator_epsilon_loss'](discriminator_episilon_loss)
+            self.metrics['discriminator_wasserstein_loss_real'](discriminator_wloss_real)
+            self.metrics['discriminator_wasserstein_loss_fake'](discriminator_wloss_fake)
+            self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
+            self.metrics['discriminator_epsilon_loss'](discriminator_episilon_loss)
             self.metrics['discriminator_loss'](total_discriminator_loss)
 
-            # self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
+            self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
             self.metrics['generator_loss'](total_generator_loss)
 
         gradients_of_generator = gen_tape.gradient(total_generator_loss, self.model.netG.trainable_variables)
