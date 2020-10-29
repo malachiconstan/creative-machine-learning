@@ -34,6 +34,7 @@ def get_options():
     parser.add_argument('--gamma', default=0.9999, type=float, help='Exponential LR scheduler gamma discount factor.')
     parser.add_argument('--cgan', action='store_true', help='Run Cycle GAN')
     parser.add_argument('--cgan_restore', action='store_true', help='Restore Cycle GAN from checkpoint')
+    parser.add_argument('--restore_gdrive', action='store_true', help='Restore from last checkpoint in gdrive')
 
     opt = parser.parse_args()
 
@@ -98,7 +99,7 @@ if __name__ == '__main__':
             epochs=40,
         )
 
-        cgan_trainer.train(restore = opt.cgan_restore)
+        cgan_trainer.train(restore = opt.cgan_restore, colab = colab, load_from_g_drive=opt.restore_gdrive, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML')
 
     else:
         data_directory = os.path.join(os.getcwd(),'data')
