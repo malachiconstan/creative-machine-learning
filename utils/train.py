@@ -283,12 +283,20 @@ class CycleGANTrainer(object):
                 tf.summary.scalar('discriminator_b_loss', self.metrics['discriminator_b_loss'].result(), step=epoch)
 
             # Save Images
-            img_b = self.generators[0](img_a, training=False)
-            img_b = img_b[:, :, :, :]* 0.5 + 0.5
+            img_b_from_a = self.generators[0](img_a, training=False)
+            img_b_from_a = img_b_from_a[:, :, :, :]* 0.5 + 0.5
             img_a = img_a[:, :, :, :]* 0.5 + 0.5
+
+            img_a_from_b = self.generators[1](img_b, training=False)
+            img_a_from_b = img_a_from_b[:, :, :, :]* 0.5 + 0.5
+            img_b = img_b[:, :, :, :]* 0.5 + 0.5
+
+
             with self.gen_summary_writer.as_default():
                 tf.summary.image('Image A', img_a, max_outputs=5, step=epoch)
+                tf.summary.image('Image A -> B', img_b_from_a, max_outputs=5, step=epoch)
                 tf.summary.image('Image B', img_b, max_outputs=5, step=epoch)
+                tf.summary.image('Image B -> A', img_a_from_b, max_outputs=5, step=epoch)
 
             if epoch % self.save_epoch:
                 save_path = self.checkpoint_manager.save()
