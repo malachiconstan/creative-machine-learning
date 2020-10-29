@@ -4,7 +4,7 @@ import zipfile
 import glob
 from google.colab import drive
 
-def extract_data_g_drive(g_drive_path, mounted = False, local_path='creative-machine-learning', extracting_checkpoints=False):
+def extract_data_g_drive(g_drive_path, mounted = False, local_path='creative-machine-learning', extracting_checkpoints=False, checkpoint_dir = 'pggan_checkpoints'):
     '''
     Helper function to extract the zip file from Google Drive
     :params
@@ -24,9 +24,9 @@ def extract_data_g_drive(g_drive_path, mounted = False, local_path='creative-mac
         raise FileNotFoundError
 
     if extracting_checkpoints:
-        files = glob.glob('/content/creative-machine-learning/content/creative-machine-learning/pggan_checkpoints/*')
+        files = glob.glob(f'/content/creative-machine-learning/content/creative-machine-learning/{checkpoint_dir}/*')
         for file_name in files:
-            shutil.move(file_name,'/content/creative-machine-learning/pggan_checkpoints',os.path.join('/content/creative-machine-learning/pggan_checkpoints',os.path.split(file_name)[1]))
+            shutil.move(file_name,f'/content/creative-machine-learning/{checkpoint_dir}',os.path.join(f'/content/creative-machine-learning/{checkpoint_dir}',os.path.split(file_name)[1]))
 
 def copy_to_gdrive(local_path, g_drive_path='/content/drive/My Drive/CML/checkpoints.zip'):
     '''

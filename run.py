@@ -57,6 +57,13 @@ def get_options():
 if __name__ == '__main__':
     opt = get_options()
 
+    try:
+        from google.colab import drive
+        colab = True
+        print('Training in colab environement')
+    except ModuleNotFoundError:
+        colab = False
+
     if opt.cgan:
         data_directory = os.path.join(os.getcwd(),'data','FACADES_UNPAIRED')
 

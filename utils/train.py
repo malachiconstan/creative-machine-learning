@@ -215,6 +215,7 @@ class CycleGANTrainer(object):
 
         # Hyperparams
         self.epochs = epochs
+        self.save_epoch = save_epoch
 
         # Logging
         self.metrics = dict(
@@ -240,7 +241,7 @@ class CycleGANTrainer(object):
 
         self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint,self.checkpoint_dir,max_to_keep=5)
 
-    def generate_images(self, model, test_input, epoch):
+    def generate_images(self, model, test_input, epoch, output_dir):
         prediction = model(test_input)
             
         plt.figure(figsize=(15, 15))
@@ -256,9 +257,13 @@ class CycleGANTrainer(object):
             plt.savefig(output_dir+'/training_{}.png'.format(epoch)) 
         plt.show()
 
-    def train(self, restore=False):
+    def train(self, restore=False, colab=False, load_from_g_drive=False, save_to_gdrive=False, g_drive_path = '/content/drive/My Drive/CML'):
 
         if restore:
+            if colab and load_from_g_drive:
+                from utils.drive_helper import extract_data_g_drive
+                extract_data_g_drive('CML/cgan_checkpoints.zip', mounted=True, extracting_checkpoints=True)
+            
             self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
             if self.checkpoint_manager.latest_checkpoint:
                 print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
@@ -289,6 +294,22 @@ class CycleGANTrainer(object):
                 save_path = self.checkpoint_manager.save()
                 print('Checkpoint step at: ',int(self.checkpoint.step))
                 print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
+
+                if colab and save_to_gdrive:
+                    from utils.drive_helper import copy_to_gdrive
+
+                    if not os.path.exists(g_drive_path):
+                        if not os.path.exists('/content/drive/My Drive/'):
+                            raise NotADirectoryError('Drive not mounted')
+                        os.makedirs(g_drive_path)
+
+                    checkpoint_path = os.path.join(g_drive_path,'cgan_checkpoints.zip')
+                    logs_path = os.path.join(g_drive_path,'cgan_logs.zip')
+
+                    copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path)
+                    copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
+                    print('Checkpoints Saved to ',checkpoint_path)
+                    print('Logs Saved to ',logs_path)
 
             # Reset Losses
             for k in self.metrics:

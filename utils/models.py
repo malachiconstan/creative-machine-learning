@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow.keras.layers as layers
 import tensorflow_addons as tfa
 
-from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, Upscale2d, mini_batch_sd
+from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
 from utils.config import BaseConfig
 from utils.losses import WGANGP
 class Generator(tf.keras.Model):
@@ -235,6 +235,9 @@ class PGGenerator(tf.keras.Model):
         if normalization:
             self.normalizationLayer = NormalizationLayer()
 
+        # Upscaling
+        self.upscale = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation='nearest')
+
         # Last layer activation function
         self.generationActivation = activation
         self.level_0_channels = level_0_channels
@@ -324,11 +327,11 @@ class PGGenerator(tf.keras.Model):
         # Dirty, find a better way
         if self.alpha > 0 and len(self.scaleLayers) == 1:
             y = self.toRGBLayers[-2](X)
-            y = Upscale2d(y)
+            y = self.upscale(y)
 
         # Upper scales
         for scale, layerGroup in enumerate(self.scaleLayers):
-            X = Upscale2d(X)
+            X = self.upscale(X)
             for convLayer in layerGroup:
                 X = self.leakyRelu(convLayer(X))
                 if self.normalizationLayer is not None:
@@ -337,7 +340,7 @@ class PGGenerator(tf.keras.Model):
             if self.alpha > 0 and scale == (len(self.scaleLayers) - 2):
                 # For the final loop only
                 y = self.toRGBLayers[-2](X)
-                y = Upscale2d(y)
+                y = self.upscale(y)(y)
 
             if verbose:
                 print('Upscale: ',X.shape)
