@@ -79,16 +79,17 @@ if __name__ == '__main__':
 
         IMAGE_HEIGHT=128
 
-        for data_dir in data_patterns:
-            pic_list = glob.glob(data_dir)
-            pic_image_length = len(pic_list)
-            count = 0
-            for fp in pic_list:
-                shape = np.array(Image.open(fp)).shape
-                if shape[0] < IMAGE_HEIGHT or shape[1] < IMAGE_HEIGHT:
-                    count+=1
-                    os.remove(fp)
-            print(f'Removed {count} images. Left {pic_image_length-count}')
+        if opt.clean_data_dir:
+            for data_dir in data_patterns:
+                pic_list = glob.glob(data_dir)
+                pic_image_length = len(pic_list)
+                count = 0
+                for fp in pic_list:
+                    shape = np.array(Image.open(fp)).shape
+                    if shape[0] < IMAGE_HEIGHT or shape[1] < IMAGE_HEIGHT:
+                        count+=1
+                        os.remove(fp)
+                print(f'Removed {count} images. Left {pic_image_length-count}')
 
         train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
         train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
