@@ -229,7 +229,8 @@ class CycleGANTrainer(object):
         self.dis_summary_writer = tf.summary.create_file_writer(self.dis_log_dir)
 
         # Checkpoints
-        self.checkpoint = tf.train.Checkpoint(generator_a2b=self.generators[0],
+        self.checkpoint = tf.train.Checkpoint(step = tf.Variable(0),
+                                        generator_a2b=self.generators[0],
                                         generator_b2a=self.generators[1],
                                         discriminator_a=self.discriminators[0],
                                         discriminator_b=self.discriminators[1],
@@ -269,6 +270,7 @@ class CycleGANTrainer(object):
                 print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
         
         for epoch in range(self.epochs):
+            self.checkpoint.step.assign_add(1)
             start = time.time()
             for img_a, img_b in tf.data.Dataset.zip(self.train_datasets):
                 self.train_step(img_a,img_b)
@@ -450,7 +452,7 @@ class ProgressiveGANTrainer(object):
         # Checkpoints
         self.model_label = model_label
         self.save_iter = save_iter
-        self.checkpoint = tf.train.Checkpoint(step =  tf.Variable(0), 
+        self.checkpoint = tf.train.Checkpoint(step = tf.Variable(0),
             generator_optimizer=self.generator_optimizer,
             discriminator_optimizer=self.discriminator_optimizer,
             generator=self.model.netG,
