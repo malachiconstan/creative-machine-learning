@@ -117,17 +117,17 @@ class CGGenerator(tf.keras.Model):
             DownSampleBlock(512,4), # (?, 8, 8, 512)
             DownSampleBlock(512,4), # (?, 4, 4, 512)
             DownSampleBlock(512,4), # (?, 2, 2, 512)
-            DownSampleBlock(512,4), # (?, 1, 1, 512)
+            # DownSampleBlock(512,4), # (?, 1, 1, 512)
         ]
 
         self.up_stack = [
             UpSampleBlock(512,4,apply_dropout=True), # (?, 2, 2, 512)
             UpSampleBlock(512,4,apply_dropout=True), # (?, 4, 4, 512)
             UpSampleBlock(512,4,apply_dropout=True), # (?, 8, 8, 512)
-            UpSampleBlock(512,4),                    # (?, 16, 16, 512)
-            UpSampleBlock(256,4),                    # (?, 32, 32, 256)
-            UpSampleBlock(128,4),                    # (?, 64, 64, 128)
-            UpSampleBlock(64,4),                     # (?, 128, 128, 64)
+            UpSampleBlock(256,4),                    # (?, 16, 16, 512)
+            UpSampleBlock(128,4),                    # (?, 32, 32, 256)
+            UpSampleBlock(64,4),                    # (?, 64, 64, 128)
+            # UpSampleBlock(64,4),                     # (?, 128, 128, 64)
         ]
 
         self.last_layer = tf.keras.layers.Conv2DTranspose(output_channels,4,2,padding='same',kernel_initializer=tf.random_normal_initializer(0.,0.02),activation='tanh')
@@ -155,12 +155,12 @@ class CGDiscriminator(tf.keras.Model):
         super(CGDiscriminator, self).__init__(name = name, **kwargs)
 
         self.body = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=[256,256,3]),
+            tf.keras.layers.Input(shape=[128,128,3]),
             DownSampleBlock(64, 4, False),
             DownSampleBlock(128, 4),
-            DownSampleBlock(256, 4),
+            # DownSampleBlock(256, 4),
             tf.keras.layers.ZeroPadding2D(),
-            tf.keras.layers.Conv2D(512,4,strides=1,kernel_initializer=tf.random_normal_initializer(0.,0.02),use_bias=False),
+            tf.keras.layers.Conv2D(256,4,strides=1,kernel_initializer=tf.random_normal_initializer(0.,0.02),use_bias=False),
             tfa.layers.InstanceNormalization(),
             tf.keras.layers.LeakyReLU(),
             tf.keras.layers.ZeroPadding2D(),

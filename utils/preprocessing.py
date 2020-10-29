@@ -84,7 +84,7 @@ def load_single(img_file):
     return img
 
 def random_jitter(img,img_height,img_width):
-    jit_img = tf.image.resize(img, [286,286], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    jit_img = tf.image.resize(img,[int(1.25*img_height),int(1.25*img_width)], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
     jit_img = tf.image.random_crop(img, size=[img_height,img_width,3])
     jit_img = tf.image.random_flip_left_right(jit_img)
     return jit_img
@@ -92,6 +92,7 @@ def random_jitter(img,img_height,img_width):
 def load_img(img_file,img_height,img_width,train,normalize):
     img = load_single(img_file)
     if train:
+        # img = tf.image.random_flip_left_right(img)
         img = random_jitter(img,img_height,img_width)
 
     if normalize:
