@@ -35,6 +35,7 @@ def get_options():
     parser.add_argument('--cgan', action='store_true', help='Run Cycle GAN')
     parser.add_argument('--cgan_restore', action='store_true', help='Restore Cycle GAN from checkpoint')
     parser.add_argument('--restore_gdrive', action='store_true', help='Restore from last checkpoint in gdrive')
+    parser.add_argument('--clean_data_dir', action='store_true', help='Remove all images in data dir with less than 128 pixel H/W')
 
     opt = parser.parse_args()
 
@@ -68,21 +69,41 @@ if __name__ == '__main__':
     if opt.cgan:
         data_directory = os.path.join(os.getcwd(),'data','FACADES_UNPAIRED')
 
-        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.jpeg'), opt.img_height, opt.img_height, 1, train=True)
-        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.jpeg'), opt.img_height, opt.img_height, 1, train=False)
+        data_patterns = [
+            os.path.join(data_directory,'unpaired_train_A','*.*'),
+            os.path.join(data_directory,'unpaired_train_B','*.*'),
+            os.path.join(data_directory,'unpaired_test_A','*.*'),
+            os.path.join(data_directory,'unpaired_test_B','*.*')
+        ]
 
-        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.jpeg'), opt.img_height, opt.img_height, 1, train=True)
-        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.jpeg'), opt.img_height, opt.img_height, 1, train=False)
+        IMAGE_HEIGHT=128
+
+        for data_dir in data_patterns:
+            pic_list = glob.glob(data_dir)
+            pic_image_length = len(pic_list)
+            count = 0
+            for fp in pic_list:
+                shape = np.array(Image.open(fp)).shape
+                if shape[0] < IMAGE_HEIGHT or shape[1] < IMAGE_HEIGHT:
+                    count+=1
+                    os.remove(fp)
+            print(f'Removed {count} images. Left {pic_image_length-count}')
+
+        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
+        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
+
+        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
+        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
 
         generator_a2b = CGGenerator()
         generator_b2a = CGGenerator()
         discriminator_a = CGDiscriminator()
         discriminator_b = CGDiscriminator()
 
-        generator_a2b.build((1, opt.img_height, opt.img_height, 3))
-        generator_b2a.build((1, opt.img_height, opt.img_height, 3))
-        discriminator_a.build((1, opt.img_height,opt.img_height,3))
-        discriminator_b.build((1, opt.img_height,opt.img_height,3))
+        generator_a2b.build((1, IMAGE_HEIGHT, IMAGE_HEIGHT, 3))
+        generator_b2a.build((1, IMAGE_HEIGHT, IMAGE_HEIGHT, 3))
+        discriminator_a.build((1, IMAGE_HEIGHT,IMAGE_HEIGHT,3))
+        discriminator_b.build((1, IMAGE_HEIGHT,IMAGE_HEIGHT,3))
 
         generator_a2b_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
         generator_b2a_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)

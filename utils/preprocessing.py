@@ -97,7 +97,9 @@ def load_img(img_file,img_height,img_width,train,normalize):
 
     if normalize:
         img = (img/127.5)-1
-    return img
+    
+    img = tf.image.central_crop(img, 1)
+    return tf.image.resize(img, [img_height, img_width])
 
 def get_cgan_image_datasets(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True,train=True):
     list_dataset = tf.data.Dataset.list_files(file_pattern)
