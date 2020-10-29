@@ -70,11 +70,31 @@ if __name__ == '__main__':
     if opt.cgan:
         data_directory = os.path.join(os.getcwd(),'data','FACADES_UNPAIRED')
 
+        # Rename files
+        directories = [
+            os.path.join(data_directory,'unpaired_train_A'),
+            os.path.join(data_directory,'unpaired_train_B'),
+            os.path.join(data_directory,'unpaired_test_A'),
+            os.path.join(data_directory,'unpaired_test_B')
+        ]
+
+        file_paths = []
+        for directory in directories:
+            for (dirpath, dirnames, filenames) in os.walk(directory):
+                file_paths.extend(filenames)
+                break
+            for file_path in file_paths:
+                file_path = os.path.join(directory, file_path)
+                if '.jpg' in os.path.splitext(file_path)[1]:
+                    base = os.path.splitext(file_path)[0]
+                    os.rename(file_path, base + '.jpeg')
+
+
         data_patterns = [
-            os.path.join(data_directory,'unpaired_train_A','*.*'),
-            os.path.join(data_directory,'unpaired_train_B','*.*'),
-            os.path.join(data_directory,'unpaired_test_A','*.*'),
-            os.path.join(data_directory,'unpaired_test_B','*.*')
+            os.path.join(data_directory,'unpaired_train_A','*.jpeg'),
+            os.path.join(data_directory,'unpaired_train_B','*.jpeg'),
+            os.path.join(data_directory,'unpaired_test_A','*.jpeg'),
+            os.path.join(data_directory,'unpaired_test_B','*.jpeg')
         ]
 
         IMAGE_HEIGHT=128
@@ -91,11 +111,11 @@ if __name__ == '__main__':
                         os.remove(fp)
                 print(f'Removed {count} images. Left {pic_image_length-count}')
 
-        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
-        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
+        train_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_A','*.jpeg'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
+        train_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_train_B','*.jpeg'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
 
-        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
-        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.*'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
+        test_datasetA =  get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_A','*.jpeg'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=True)
+        test_datasetB = get_cgan_image_datasets(os.path.join(data_directory,'unpaired_test_B','*.jpeg'), IMAGE_HEIGHT, IMAGE_HEIGHT, 1, train=False)
 
         generator_a2b = CGGenerator()
         generator_b2a = CGGenerator()
