@@ -302,10 +302,6 @@ class PGGenerator(tf.keras.Model):
         if verbose:
             print('')
             print('Calling Generator')
-        
-        ## Normalize the input
-        if self.normalizationLayer is not None:
-            X = self.normalizationLayer(X)
 
         X = tf.reshape(X,(X.shape[0], tf.math.reduce_prod(X.shape[1:])))
         # format layer

@@ -53,8 +53,8 @@ def mini_batch_sd(X):
     batch_size, h, w, _ = X.get_shape().as_list()
     new_feat_shape = [batch_size, h, w, 1]
 
-    mean, var = tf.nn.moments(X, axes=[0], keep_dims=True)
-    stddev = tf.math.sqrt(tf.reduce_mean(var, keep_dims=True))
+    mean, var = tf.nn.moments(X, axes=[0], keepdims=True)
+    stddev = tf.math.sqrt(tf.math.reduce_mean(var, keepdims=True))
     new_feat = tf.tile(stddev, multiples=new_feat_shape)
     return tf.concat([X, new_feat], axis=3)
 
