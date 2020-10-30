@@ -926,7 +926,7 @@ class ProgressiveGANTrainer(object):
 
             # 4. Epsilon Loss
             if self.modelConfig.epsilonD > 0:
-                discriminator_episilon_loss = tf.math.reduce_sum(real_predictions[:,0]**2) + self.modelConfig.epsilonD
+                discriminator_episilon_loss = tf.math.reduce_mean(real_predictions[:,0]**2) + self.modelConfig.epsilonD
                 if verbose:
                     print('Obtained Epsilon Loss for Discriminator')
             # total_discriminator_loss = discriminator_loss(real_predictions, fake_predictions)
