@@ -1,32 +1,38 @@
 import tensorflow as tf
 
-class WGANGP(object):
-    """
-    Paper WGANGP loss : linear activation for the generator.
-    https://arxiv.org/pdf/1704.00028.pdf
-    """
+# class WGANGP(object):
+#     """
+#     Paper WGANGP loss : linear activation for the generator.
+#     https://arxiv.org/pdf/1704.00028.pdf
+#     """
 
-    def __init__(self):
+#     def __init__(self):
 
-        self.activation = None
-        self.decision_layer_size = 1
+#         self.activation = None
+#         self.decision_layer_size = 1
 
-    def getCriterion(self, y_pred, status):
-        """
-        Given an input tensor and its targeted status (detected as real or
-        detected as fake) build the associated loss
-        Args:
-            - y_pred (Tensor): decision tensor build by the model's discrimator
-            - status (bool): if True -> this tensor should have been detected
-                             as a real input
-                             else -> it shouldn't have
-        """
-        assert len(y_pred.shape) == 2 and y_pred.shape[1] == 1, 'Shape of y pred should be of length 2, and axis-1 only has 1 value, i.e. [N, 1]'
-        if status:
-            # Wasserstein loss for real images is negative
-            return -1*tf.math.reduce_sum(y_pred[:, 0])
-        # Wasserstein loss for fake images is positive
-        return tf.math.reduce_sum(y_pred[:, 0])
+#     def getCriterion(self, y_pred, status):
+#         """
+#         Given an input tensor and its targeted status (detected as real or
+#         detected as fake) build the associated loss
+#         Args:
+#             - y_pred (Tensor): decision tensor build by the model's discrimator
+#             - status (bool): if True -> this tensor should have been detected
+#                              as a real input
+#                              else -> it shouldn't have
+#         """
+#         assert len(y_pred.shape) == 2 and y_pred.shape[1] == 1, 'Shape of y pred should be of length 2, and axis-1 only has 1 value, i.e. [N, 1]'
+#         if status:
+#             # Wasserstein loss for real images is negative
+#             return -1*tf.math.reduce_mean(y_pred)
+#         # Wasserstein loss for fake images is positive
+#         return tf.math.reduce_mean(y_pred)
+    
+def wgan_loss(y_pred, predict_real=True):
+    if predict_real:
+        return -tf.math.reduce_mean(y_pred)
+    else:
+        return tf.math.reduce_mean(y_pred)
 
 def WGANGPGradientPenalty(real_images, fake_images, discriminator, weight):
     """
