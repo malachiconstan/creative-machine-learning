@@ -4,7 +4,7 @@ import tensorflow_addons as tfa
 
 from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
 from utils.config import BaseConfig
-from utils.losses import WGANGP
+from utils.losses import wgan_loss
 class Generator(tf.keras.Model):
     def __init__(self, latent_dim, name = 'Vanilla_GAN', **kwargs):
         super(Generator, self).__init__(name = name, **kwargs)
@@ -554,7 +554,7 @@ class ProgressiveGAN(object):
         self.config.GDPP = GDPP
 
         # WGAN-GP
-        self.loss_criterion = WGANGP()
+        self.loss_criterion = wgan_loss
         self.config.lambdaGP = lambdaGP
 
         self.netD = self.getNetD()
@@ -577,7 +577,7 @@ class ProgressiveGAN(object):
                         init_bias_zero=self.config.init_bias_zero,
                         leaky_relu_leak=self.config.leaky_relu_leak,
                         normalization=self.config.per_channel_normalisation,
-                        activation=self.loss_criterion.activation,
+                        activation=None,
                         output_dim=self.config.output_dim,
                         equalizedlR=self.config.equalizedlR)
 
@@ -595,7 +595,7 @@ class ProgressiveGAN(object):
         dnet = PGDiscriminator(self.config.level_0_channels,
                             init_bias_zero=self.config.init_bias_zero,
                             leaky_relu_leak=self.config.leaky_relu_leak,
-                            decision_layer_size=self.loss_criterion.decision_layer_size,
+                            decision_layer_size=1,
                             mini_batch_sd=self.config.mini_batch_sd,
                             input_dim=self.config.output_dim,
                             equalizedlR=self.config.equalizedlR)
