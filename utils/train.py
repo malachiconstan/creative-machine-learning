@@ -903,18 +903,18 @@ class ProgressiveGANTrainer(object):
             
             # 1. Real Output + Wasserstein Loss
             real_predictions = self.model.netD(real_images, training=True)
-            discriminator_wloss_real = self.model.loss_criterion.getCriterion(real_predictions, True)
+            discriminator_wloss_real = self.model.loss_criterion(real_predictions, True)
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on REAL images')
 
             # 2. Fake Output + Wasserstein Loss
             generated_images = self.model.netG(noise, training=True)
             fake_predictions = self.model.netD(generated_images, training=True)
-            discriminator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, False)
+            discriminator_wloss_fake = self.model.loss_criterion(fake_predictions, False)
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on FAKE images')
             
-            generator_wloss_fake = self.model.loss_criterion.getCriterion(fake_predictions, True)
+            generator_wloss_fake = self.model.loss_criterion(fake_predictions, True)
             if verbose:
                 print('Obtained Wasserstein Loss for Generator on FAKE images')
             
