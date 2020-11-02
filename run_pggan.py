@@ -26,6 +26,7 @@ def get_options():
     parser.add_argument('--beta1', default=0., type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.99, type=float, help='Adam optimizer beta2.')
 
+    parser.add_argument('--tf1', action='store_true', help='Run the TF1 version of PGGAN')
     parser.add_argument('--restore', action='store_true', help='Restore from last checkpoint')
     parser.add_argument('--restore_gdrive', action='store_true', help='Restore from last checkpoint in gdrive')
 

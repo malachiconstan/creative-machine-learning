@@ -6,28 +6,60 @@ from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLa
 from utils.config import BaseConfig
 from utils.losses import wgan_loss
 class Generator(tf.keras.Model):
-    def __init__(self, latent_dim, name = 'Vanilla_GAN', **kwargs):
+    def __init__(self, latent_dim, name = 'Vanilla_GAN', upscale = False, **kwargs):
         super(Generator, self).__init__(name = name, **kwargs)
         self.latent_dim = latent_dim
 
-        self.body = tf.keras.Sequential([
-            layers.Input(shape=(latent_dim,)),
-            layers.Dense(8*8*256),
-            layers.BatchNormalization(),
-            layers.LeakyReLU(),
+        if upscale:
+            self.body = tf.keras.Sequential([
+                layers.Input(shape=(latent_dim,)),
+                layers.Dense(8*8*1024),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
 
-            layers.Reshape((8,8,256)),
-            
-            layers.Conv2DTranspose(128,(5,5),strides=(1,1),padding='same',use_bias=False),
-            layers.BatchNormalization(),
-            layers.LeakyReLU(),
+                layers.Reshape((8,8,1024)),
+                
+                layers.Conv2DTranspose(512,(5,5),strides=(1,1),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
 
-            layers.Conv2DTranspose(64,(5,5),strides=(2,2),padding='same',use_bias=False),
-            layers.BatchNormalization(),
-            layers.LeakyReLU(),
+                layers.Conv2DTranspose(256,(5,5),strides=(2,2),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
 
-            layers.Conv2DTranspose(3,(5,5),strides=(2,2),padding='same',use_bias=False,activation='tanh')
-        ])
+                layers.Conv2DTranspose(128,(5,5),strides=(2,2),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
+
+                layers.Conv2DTranspose(64,(5,5),strides=(2,2),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
+
+                layers.Conv2DTranspose(32,(5,5),strides=(2,2),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
+
+                layers.Conv2DTranspose(3,(5,5),strides=(2,2),padding='same',use_bias=False,activation='tanh')
+            ])
+        else:
+            self.body = tf.keras.Sequential([
+                layers.Input(shape=(latent_dim,)),
+                layers.Dense(8*8*256),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
+
+                layers.Reshape((8,8,256)),
+                
+                layers.Conv2DTranspose(128,(5,5),strides=(1,1),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
+
+                layers.Conv2DTranspose(64,(5,5),strides=(2,2),padding='same',use_bias=False),
+                layers.BatchNormalization(),
+                layers.LeakyReLU(),
+
+                layers.Conv2DTranspose(3,(5,5),strides=(2,2),padding='same',use_bias=False,activation='tanh')
+            ])
     
     def call(self, X):
         X = self.body(X)
@@ -35,26 +67,57 @@ class Generator(tf.keras.Model):
         return X
 
 class Discriminator(tf.keras.Model):
-    def __init__(self, name = 'Vanilla_GAN_Discriminator', **kwargs):
+    def __init__(self, name = 'Vanilla_GAN_Discriminator', upscale = False, **kwargs):
         super(Discriminator, self).__init__(name = name, **kwargs)
 
-        self.body = tf.keras.Sequential([
-            layers.Input(shape=(32,32,3)),
-            layers.Conv2D(32,(5,5),strides=(2,2),padding='same'),
-            layers.LeakyReLU(),
-            layers.Dropout(0.3),
+        if upscale:
+            self.body = tf.keras.Sequential([
+                layers.Input(shape=(256,256,3)),
+                layers.Conv2D(32,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
 
-            layers.Conv2D(64,(5,5),strides=(2,2),padding='same'),
-            layers.LeakyReLU(),
-            layers.Dropout(0.3),
+                layers.Conv2D(64,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
 
-            layers.Conv2D(128,(5,5),strides=(2,2),padding='same'),
-            layers.LeakyReLU(),
-            layers.Dropout(0.3),
+                layers.Conv2D(128,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
 
-            layers.Flatten(),
-            layers.Dense(1)
-        ])
+                layers.Conv2D(256,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
+
+                layers.Conv2D(512,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
+
+                layers.Conv2D(1024,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
+
+                layers.Flatten(),
+                layers.Dense(1)
+            ])
+        else:
+            self.body = tf.keras.Sequential([
+                layers.Input(shape=(32,32,3)),
+                layers.Conv2D(32,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
+
+                layers.Conv2D(64,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
+
+                layers.Conv2D(128,(5,5),strides=(2,2),padding='same'),
+                layers.LeakyReLU(),
+                layers.Dropout(0.3),
+
+                layers.Flatten(),
+                layers.Dense(1)
+            ])
     
     def call(self, X):
         X = self.body(X)
