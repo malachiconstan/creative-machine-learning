@@ -3,7 +3,255 @@ tf.disable_v2_behavior()
 import numpy as np
 from model import Model
 
+class EqualisedInitialiser(tf.keras.initializers.initializer):
+    def __init__(self):
+        pass
 
+    def __call__(self, shape, dtype=None):
+        fan_in = shape[0]*shape[1]*shape[2]
+        self.he_constant = tf.constant(tf.math.sqrt(2./fan_in), dtype=tf.float32)
+        return self.he_constant*tf.random.normal(shape, mean=0.0, stddev=1.0, dtype=dtype)
+
+    def get_config(self):
+        return dict(he_constant = self.he_constant)
+
+class EqualisedConv2D(tf.keras.layers.Layer):
+    def __init__(self,
+                output_channels,
+                kernel_size,
+                strides=(1,1),
+                padding='same',
+                activation=None
+                ):
+        super(EqualisedConv2D, self).__init__()
+
+        self.kernel_size = kernel_size
+        self.output_channels = output_channels
+        self.strides = strides
+        self.padding = padding
+
+        self.kernel_init = EqualisedInitialiser()
+        self.bias_init = tf.keras.initializers.Zeros()
+
+    def build(self, input_shape):
+        input_channels = input_shape.shape[-1]
+        self.kernel_size = [self.kernel_size, self.kernel_size, input_channels, self.output_channels]
+        self.bias_size = [self.output_channels]
+
+        self.kernel = self.add_weight('kernel', shape = self.kernel_size, initializer=self.kernel_init, trainable=True)
+        self.bias = self.add_weight('bias', shape = self.bias_size, initializer=self.bias_init, trainable=True)
+
+    def call(self, X):
+        X = tf.nn.conv2d(X, self.kernel, self.strides, self.padding.upper())
+        return tf.nn.bias_add(X, self.bias)
+
+class PixelwiseNorm(tf.keras.layers.Layer):
+    def __init__(self, epsilon = 1e-8):
+        super(PixelwiseNorm, self).__init__()
+        self.epsilon = epsilon
+
+    def call(self, X):
+        return X / tf.math.sqrt(tf.math.reduce_mean(X * X, axis=3, keep_dims=True) + self.epsilon)
+
+class EqualisedConv2DModule(tf.keras.Model):
+    def __init__(self,
+                output_filters,
+                leak,
+                kernel_sizes=None,
+                norms=None,
+                padding='same'):
+
+        if kernel_sizes is None:
+            kernel_sizes = [3] * len(output_filters)
+        if norms is None:
+            norms = [None, None]
+
+        self.body = tf.keras.Sequential()
+
+        for _, (filters, kernel_size, norm) in enumerate(zip(output_filters, kernel_sizes, norms)):
+            self.body.add(EqualisedConv2D(filters, kernel_size, padding=padding))
+            self.body.add(tf.keras.layers.LeakyReLU(alpha=leak))
+            if norm is not None:
+                if norm == 'batch_norm':
+                    self.body.add(tf.keras.layers.BatchNormalization())
+                elif norm == 'pixelwise_norm':
+                    self.body.add(PixelwiseNorm())
+                elif norm == 'layer_norm':
+                    self.body.add(tf.keras.layers.LayerNormalization())
+                else:
+                    raise NotImplementedError(f'{norm} not yet implemented')
+
+    def call(self, X):
+        return self.body(X)
+
+class PGGenerator(tf.keras.Model):
+    def __init__(self,
+                cfg,
+                alpha,
+                name = 'PGGAN_Generator',
+                **kwargs):
+        super(PGGenerator, self).__init__(name = name, **kwargs)
+
+        self.leak = cfg.leakyRelu_alpha
+        input_size, _, nc = cfg.input_shape
+        self.res = cfg.resolution
+        self.min_res = cfg.min_resolution
+        
+        # number of times to upsample/downsample for full resolution:
+        self.n_scalings = int(np.log2(input_size / self.min_res))
+        # number of times to upsample/downsample for current resolution:
+        self.n_layers = int(np.log2(self.res / self.min_res))
+        self.nf_min = cfg.nf_min  # min feature depth
+        self.nf_max = cfg.nf_max  # max feature depth
+        self.batch_size = cfg.batch_size
+
+        # Placeholders
+        self.alpha = alpha
+        self.z_dim = self.cfg.z_dim
+        self.transition = self.cfg.transition
+        self.use_tanh = self.cfg.use_tanh
+
+        # Fixed Layers
+        self.upsampling_layer = tf.keras.layers.UpSampling2D(size=(2,2), interpolation='nearest')
+
+        # Define Convolution Layers
+        feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
+        self.first_conv = EqualisedConv2DModule(output_filters=[feat_depth, feat_depth],
+                                                leak=self.leak,
+                                                kernel_sizes=[4,3],
+                                                norms=[None, self.cfg.norm_g]
+                                                )
+        
+        self.subsequent_conv = []
+        r = self.min_res
+        for i in range(self.n_layers):
+            n = self.nf_min * 2 ** (self.n_scalings - i - 1)
+            feat_depth = min(self.nf_max, n)
+            r *= 2
+            self.subsequent_conv.append(EqualisedConv2DModule(
+                                        output_filters=[feat_depth, feat_depth],
+                                        leak=self.leak,
+                                        norms=[None, self.cfg.norm_g]
+                                        ))
+        assert r == self.res, '{:} not equal to {:}'.format(r, self.res)
+
+        # To RGB Layers using 1x1 convolution
+        self.to_image_conv = EqualisedConv2D(self.cfg.input_shape[-1], 1)
+        self.to_image_conv_prime = EqualisedConv2D(self.cfg.input_shape[-1], 1)
+
+    def call(self, z, verbose=False):
+
+        feat_size = self.min_res
+        X = tf.reshape(z, (-1, 1, 1, self.z_dim))
+        padding = int(feat_size / 2)
+        X = tf.pad(X, [[0, 0], [padding - 1, padding],[padding - 1, padding], [0, 0]])
+        X = self.first_conv(X)
+
+        for i in range(self.n_layers):
+            X = self.upsampling_layer(X)
+            X = self.subsequent_conv[i](X)
+            if i == self.n_layers-2 and self.transition:
+                X_prime = X
+
+        X = self.to_image_conv(X)
+        if self.transition:
+            X_prime = self.upsampling_layer(X_prime)
+            X_prime = self.to_image_conv_prime(X_prime)
+            X = self.alpha*X + (1.-self.alpha)*X_prime
+
+        if self.use_tanh:
+            X = tf.tanh(X)
+
+        return X
+
+class PGDiscriminator(tf.keras.Model):
+    def __init__(self,
+                cfg,
+                alpha,
+                name = 'PGGAN_Discriminator',
+                **kwargs):
+        super(PGDiscriminator, self).__init__(name = name, **kwargs)
+
+        self.leak = cfg.leakyRelu_alpha
+        input_size, _, nc = cfg.input_shape
+        self.res = cfg.resolution
+        self.min_res = cfg.min_resolution
+        
+        # number of times to upsample/downsample for full resolution:
+        self.n_scalings = int(np.log2(input_size / self.min_res))
+        # number of times to upsample/downsample for current resolution:
+        self.n_layers = int(np.log2(self.res / self.min_res))
+        self.nf_min = cfg.nf_min  # min feature depth
+        self.nf_max = cfg.nf_max  # max feature depth
+        self.batch_size = cfg.batch_size
+
+        # Placeholders
+        self.alpha = alpha
+        self.transition = self.cfg.transition
+
+        # Fixed Layers
+        self.downsample_layer = tf.keras.layers.AveragePooling2D(pool_size=(2,2))
+
+        # Define Convolution Layers
+        self.feat_depths = [min(self.nf_max, self.nf_min * 2 ** i)for i in range(self.n_scalings)]
+        self.from_image_conv = EqualisedConv2D(self.feat_depths[-self.n_layers], 1)
+
+        norm = self.cfg.norm_d
+        if (self.cfg.loss_mode == 'wgan_gp') and (norm == 'batch_norm'):
+            norm = None
+
+        r = self.res
+        self.subsequent_conv = []
+        for i in range(self.n_layers):
+            feat_depth_1 = self.feat_depths[-self.n_layers + i]
+            feat_depth_2 = min(self.nf_max, 2 * feat_depth_1)
+            self.subsequent_conv.append(EqualisedConv2DModule(
+                                        output_filters=[feat_depth_1, feat_depth_2],
+                                        leak=self.leak,
+                                        norms=[norm, norm]
+                                        ))
+            r /= 2
+            if i == 0 and self.transition:
+                self.from_image_conv_prime = EqualisedConv2D(self.feat_depths[-self.n_layers+1], 1)
+
+        assert r == self.min_res, '{:} not equal to {:}'.format(r, self.min_res)
+
+        self.final_feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
+        self.final_conv_module = EqualisedConv2DModule(output_filters=[self.final_feat_depth, self.final_feat_depth],
+                                                        leak=self.leak,
+                                                        kernel_sizes=[3,4],
+                                                        norms=[norm,None])
+
+        # Classification layer
+        self.classifier = tf.keras.layers.Dense(1)
+
+    def minibatch_stddev(self, X):
+        _, h, w, _ = X.get_shape().as_list()
+        new_feat_shape = [self.batch_size, h, w, 1]
+
+        _, var = tf.nn.moments(X, axes=[0], keepdims=True)
+        stddev = tf.math.sqrt(tf.math.reduce_mean(var, keepdims=True))
+        new_feat = tf.tile(stddev, multiples=new_feat_shape)
+        return tf.concat([X, new_feat], axis=3)
+        
+
+    def call(self, input_, verbose=False):
+    
+        X = self.from_image_conv(input_)
+        for i in range(self.n_layers):
+            X = self.subsequent_conv[i](X)
+            X = self.downsample_layer(X)
+            if i == 0 and self.transition:
+                X_prime = self.downsample_layer(input_)
+                X_prime = self.from_image_conv_prime(X_prime)
+                X = self.alpha * X + (1.-self.alpha) * X_prime
+
+        X = self.final_conv_module(X)
+        X = tf.reduce_mean(X, axis=[1, 2])
+        X = tf.reshape(X, [self.batch_size, self.final_feat_depth])
+        X = self.classifier(X)
+
+        return X
 class DCGAN(Model):
     def __init__(self, cfg):
         self.alpha = cfg.leakyRelu_alpha

@@ -14,16 +14,16 @@ import datetime as dt
 
 from utils import ImageLoader
 
-class Model(keras.Model):
+class PGGAN(object):
     def __init__(self,
                 datapath,
                 cfg,
                 discriminator_optimizer,
                 generator_optimizer,
                 loss_iter_evaluation=200,
-                save_iter=5000
-                ):
-        super(Model, self).__init__()
+                save_iter=5000,
+                model_label='PGGAN'):
+        # super(PGGAN, self).__init__(name = model_label, **kwargs)
 
         # Define directories
         current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
@@ -62,6 +62,10 @@ class Model(keras.Model):
         self.h, self.w, self.c = self.cfg.input_shape
         self.z_dim = self.cfg.z_dim
         self.alpha = 0.
+
+        # Initialise Models
+        self.Generator = PGGenerator(cfg, alpha = 0.)
+        self.Discriminator = Discriminator(cfg, alpha = 0.)
 
         # Define Optimizers
         self.generator_optimizer = generator_optimizer
@@ -111,15 +115,6 @@ class Model(keras.Model):
                 tf.image.resize_nearest_neighbor(low_res_img, size=new_size)
             new_img = alpha * new_img + (1. - alpha) * low_res_img
         return new_img
-
-    def build_generator(self, training):
-        raise NotImplementedError("Not yet implemented")
-
-    def build_encoder(self, training):
-        raise NotImplementedError("Not yet implemented")
-
-    def build_discriminator(self, input_, reuse, training):
-        raise NotImplementedError("Not yet implemented")
 
     def train_step(self, real_images, noise, verbose=False):
         # tf.summary.image('images_real_original_size', images_real, 8)
