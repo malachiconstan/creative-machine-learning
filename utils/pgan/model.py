@@ -12,7 +12,8 @@ import losses
 import time
 import datetime as dt
 
-from utils import ImageLoader
+from utils.pgan.net import PGGenerator, PGDiscriminator
+from utils.pgan.utils import ImageLoader
 
 class PGGAN(object):
     def __init__(self,
@@ -20,8 +21,8 @@ class PGGAN(object):
                 cfg,
                 discriminator_optimizer,
                 generator_optimizer,
-                loss_iter_evaluation=200,
-                save_iter=5000,
+                # loss_iter_evaluation=200,
+                # save_iter=5000,
                 model_label='PGGAN'):
         # super(PGGAN, self).__init__(name = model_label, **kwargs)
 
@@ -61,19 +62,23 @@ class PGGAN(object):
         # Define Parameters
         self.h, self.w, self.c = self.cfg.input_shape
         self.z_dim = self.cfg.z_dim
-        self.alpha = 0.
+        self.n_critic = self.cfg.n_critic
+        self.n_iters = self.cfg.n_iters
+        self.batch_size = self.cfg.batch_size
+        self.transition = self.cfg.transition
+        self.alpha = self.cfg.fade_alpha
 
         # Initialise Models
         self.Generator = PGGenerator(cfg, alpha = 0.)
-        self.Discriminator = Discriminator(cfg, alpha = 0.)
+        self.Discriminator = PGDiscriminator(cfg, alpha = 0.)
 
         # Define Optimizers
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.ema = tf.train.ExponentialMovingAverage(decay=0.999)
-
+        
         # Checkpoints
-        self.save_iter = save_iter
+        self.save_period = self.cfg.save_period
         self.checkpoint = tf.train.Checkpoint(step = tf.Variable(0),
             generator_optimizer=self.generator_optimizer,
             discriminator_optimizer=self.discriminator_optimizer,
@@ -83,7 +88,7 @@ class PGGAN(object):
         self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.checkpoint_dir, max_to_keep=3)
 
         # Logging
-        self.loss_iter_evaluation = loss_iter_evaluation
+        self.display_period = self.cfg.display_period
         self.metrics = dict(
             discriminator_wasserstein_loss_real = tf.keras.metrics.Mean('discriminator_wasserstein_loss_real', dtype=tf.float32),
             discriminator_wasserstein_loss_fake = tf.keras.metrics.Mean('discriminator_wasserstein_loss_fake', dtype=tf.float32),
@@ -215,6 +220,122 @@ class PGGAN(object):
         #                                         global_step=self.global_step)
         #     self.g_train_op = g_solver.minimize(g_loss, var_list=g_vars)
         #     self.d_loss, self.g_loss = d_loss, g_loss
+
+    def load_model(self):
+        pass
+
+    def train_resolution_2(self):
+        """ Train the model. """
+        
+        # Create new directories for individual scales/transition
+        save_tag = '{0:}x{0:}'.format(self.cfg.resolution)
+        if self.transition:
+            save_tag += '_transition'
+        
+        img_save_dir = os.path.join(self.image_save_dir, save_tag)
+        if not os.path.exists(img_save_dir):
+            os.makedirs(img_save_dir)
+        
+        save_dir = os.path.join(self.checkpoint_dir, save_tag)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        save_dir = os.path.join(save_dir, 'model')
+
+        if self.cfg.load_model:
+            pass
+            #TODO: Load model
+        elif self.transition:
+            pass
+            #TODO load state from previous resolution
+
+        # with tf.device("/cpu:0"):
+            # image_batch = image_loader.create_batch_pipeline()
+
+        # self.make_train_op(image_batch)
+
+        # merged = tf.summary.merge_all()
+        # writer = tf.summary.FileWriter(os.path.join(self.cfg.summary_dir, time.strftime('%Y%m%d_%H%M%S')))
+
+        # Create ops in graph before Session is created
+        # init = tf.global_variables_initializer()
+        # saver = tf.train.Saver()
+        # with tf.Session() as sess:
+            # sess.run(init)
+            # tf.train.start_queue_runners(sess)
+            # load_model = self.cfg.load_model
+            # if self.cfg.load_model:
+                # self.load(sess, saver, load_model)
+            # elif transition:
+            #     vars_to_load = []
+            #     all_vars = tf.trainable_variables()
+            #     r = self.cfg.min_resolution
+            #     while r < self.cfg.resolution:
+            #         var_scope = '{0:}x{0:}'.format(r)
+            #         vars_to_load += [v for v in all_vars if var_scope in v.name]
+            #         r *= 2
+            #     saver_restore = tf.train.Saver(vars_to_load)
+            #     tag = '{0:}x{0:}'.format(self.cfg.resolution // 2)
+            #     print(tag)
+            #     self.load(sess, saver_restore, tag=tag)
+
+        self.Generator.alpha = self.alpha
+        self.Discriminator.alpha = self.alpha
+
+            # alpha = self.cfg.fade_alpha
+        self.global_step = 0
+        # sum_g_loss, sum_d_loss = 0., 0.
+        # batch_gen = image_loader.batch_generator()
+
+        for i in range(self.n_iters):
+            self.global_step += 1
+            self.checkpoint.step.assign_add(1)
+            
+            noise = tf.random.normal([self.batch_size, self.z_dim])
+
+            # batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
+            # feed_dict = {self.tf_placeholders['z']: batch_z,
+                            # self.tf_placeholders['learning_rate']: learning_rate,
+                            # self.tf_placeholders['alpha']: alpha}
+            if global_step % display_period == 0:
+                _, global_step, d_loss, merged_res = \
+                    sess.run([self.d_train_op, self.global_step, self.d_loss, merged],
+                                feed_dict=feed_dict)
+            else:
+                _, global_step, d_loss = \
+                    sess.run([self.d_train_op, self.global_step, self.d_loss],
+                            feed_dict=feed_dict)
+
+            g_loss = 0.
+            if global_step % n_critic == 0:
+                _, _, g_loss = \
+                    sess.run([self.g_train_op, self.ema_op, self.g_loss],
+                                feed_dict=feed_dict)
+            sum_g_loss += g_loss
+            sum_d_loss += d_loss
+            if transition:
+                alpha_step = 1. / n_iters
+                alpha = min(1., self.cfg.fade_alpha+global_step*alpha_step)
+            if global_step % display_period == 0:
+                writer.add_summary(merged_res, global_step)
+                print("After {} iterations".format(global_step),
+                        "Discriminator loss : {:3.5f}  "
+                        .format(sum_d_loss / display_period),
+                        "Generator loss : {:3.5f}"
+                        .format(sum_g_loss / display_period * n_critic))
+                sum_g_loss, sum_d_loss = 0., 0.
+                if transition:
+                    print("Using alpha = ", alpha)
+            if global_step % save_period == 0:
+                print("Saving model in {}".format(save_dir))
+                saver.save(sess, save_dir, global_step)
+                if self.cfg.save_images:
+                    gen_images = self.generate_images(save_tag, alpha=alpha)
+                    plt.figure(figsize=(10, 10))
+                    grid = image_loader.grid_batch_images(gen_images)
+                    filename = os.path.join(img_save_dir, str(global_step) + '.png')
+                    plt.imsave(filename, grid)
+        print("Saving model in {}".format(save_dir))
+        saver.save(sess, save_dir, global_step)
 
     def train_resolution(self):
         """ Train the model. """
