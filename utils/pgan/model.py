@@ -55,6 +55,7 @@ class PGGAN(object):
         # self.d_loss, self.g_loss = None, None
         self.gen_images, self.eval_op = None, None
         self.image_loader = ImageLoader(self.cfg)
+        self.train_dataset = iter(self.image_loader.get_image_dataset())
 
         self.start_scale = 0
         self.start_iter = 0
@@ -90,10 +91,10 @@ class PGGAN(object):
         # Logging
         self.display_period = self.cfg.display_period
         self.metrics = dict(
-            discriminator_wasserstein_loss_real = tf.keras.metrics.Mean('discriminator_wasserstein_loss_real', dtype=tf.float32),
-            discriminator_wasserstein_loss_fake = tf.keras.metrics.Mean('discriminator_wasserstein_loss_fake', dtype=tf.float32),
+            # discriminator_wasserstein_loss_real = tf.keras.metrics.Mean('discriminator_wasserstein_loss_real', dtype=tf.float32),
+            discriminator_wasserstein_loss = tf.keras.metrics.Mean('discriminator_wasserstein_loss', dtype=tf.float32),
             discriminator_wasserstein_gradient_penalty = tf.keras.metrics.Mean('discriminator_wasserstein_gradient_penalty', dtype=tf.float32),
-            generator_wasserstein_loss = tf.keras.metrics.Mean('generator_wasserstein_loss', dtype=tf.float32),
+            # generator_wasserstein_loss = tf.keras.metrics.Mean('generator_wasserstein_loss', dtype=tf.float32),
             discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
             discriminator_loss = tf.keras.metrics.Mean('discriminator_loss', dtype=tf.float32),
             generator_loss = tf.keras.metrics.Mean('generator_loss', dtype=tf.float32),
@@ -221,10 +222,76 @@ class PGGAN(object):
         #     self.g_train_op = g_solver.minimize(g_loss, var_list=g_vars)
         #     self.d_loss, self.g_loss = d_loss, g_loss
 
-    def load_model(self):
-        pass
+    def save_check_point(self, scale, iter, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
+        save_path = self.checkpoint_manager.save()
+        if verbose:
+            print('Checkpoint step at: ',int(self.checkpoint.step))
+            print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
 
-    def train_resolution_2(self):
+        # Tmp Configuration
+        outConfig = {'scale': scale, 'iter': iter}
+
+        with open(self.temp_config_path, 'w') as fp:
+            json.dump(outConfig, fp, indent=4)
+        
+        if verbose:
+            print('Saved temp outconfig to: ',self.temp_config_path)
+
+        if save_to_gdrive:
+            from utils.drive_helper import copy_to_gdrive
+
+            if not os.path.exists(g_drive_path):
+                if not os.path.exists('/content/drive/My Drive/'):
+                    raise NotADirectoryError('Drive not mounted')
+                os.makedirs(g_drive_path)
+
+            checkpoint_path = os.path.join(g_drive_path,'checkpoints.zip')
+            logs_path = os.path.join(g_drive_path,'logs.zip')
+
+            copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path)
+            copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
+            print('Checkpoints Saved to ',checkpoint_path)
+            print('Logs Saved to ',logs_path)
+
+    def load_saved_training(self, load_from_g_drive=False):
+        """
+        Load a given checkpoint.
+        """ 
+        if self.colab and load_from_g_drive:
+            from utils.drive_helper import extract_data_g_drive
+            extract_data_g_drive('CML/checkpoints.zip', mounted=True, extracting_checkpoints=True)
+            print('Extracted checkpoints from colab')
+
+        # Load the temp configuration
+        # Find latest scale file
+        scale = 0
+        for scale in range(self.modelConfig.n_scales-1,-1,-1):
+            print(scale)
+            path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+            print(path)
+            if os.path.exists(path):
+                self.temp_config_path = path
+                break
+
+        with open(self.temp_config_path,'rb') as infile:
+            tmpConfig = json.load(infile)
+        self.startScale = tmpConfig["scale"]
+        self.startIter = tmpConfig["iter"]
+
+        # Read the training configuration
+        with open(self.train_config_path,'rb') as infile:
+            trainConfig = json.load(infile)
+        self.readTrainConfig(trainConfig)
+
+        # Re-initialize the model
+        self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
+        
+        # Load saved checkpoint
+        self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
+        if self.checkpoint_manager.latest_checkpoint:
+            print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+
+    def train_resolution_2(self, verbose=True):
         """ Train the model. """
         
         # Create new directories for individual scales/transition
@@ -289,6 +356,8 @@ class PGGAN(object):
         for i in range(self.n_iters):
             self.global_step += 1
             self.checkpoint.step.assign_add(1)
+
+            real_image_batch = next(self.train_dataset)
             
             noise = tf.random.normal([self.batch_size, self.z_dim])
 
@@ -296,46 +365,87 @@ class PGGAN(object):
             # feed_dict = {self.tf_placeholders['z']: batch_z,
                             # self.tf_placeholders['learning_rate']: learning_rate,
                             # self.tf_placeholders['alpha']: alpha}
-            if global_step % display_period == 0:
-                _, global_step, d_loss, merged_res = \
-                    sess.run([self.d_train_op, self.global_step, self.d_loss, merged],
-                                feed_dict=feed_dict)
-            else:
-                _, global_step, d_loss = \
-                    sess.run([self.d_train_op, self.global_step, self.d_loss],
-                            feed_dict=feed_dict)
 
-            g_loss = 0.
-            if global_step % n_critic == 0:
-                _, _, g_loss = \
-                    sess.run([self.g_train_op, self.ema_op, self.g_loss],
-                                feed_dict=feed_dict)
-            sum_g_loss += g_loss
-            sum_d_loss += d_loss
-            if transition:
-                alpha_step = 1. / n_iters
-                alpha = min(1., self.cfg.fade_alpha+global_step*alpha_step)
-            if global_step % display_period == 0:
-                writer.add_summary(merged_res, global_step)
-                print("After {} iterations".format(global_step),
-                        "Discriminator loss : {:3.5f}  "
-                        .format(sum_d_loss / display_period),
-                        "Generator loss : {:3.5f}"
-                        .format(sum_g_loss / display_period * n_critic))
-                sum_g_loss, sum_d_loss = 0., 0.
-                if transition:
-                    print("Using alpha = ", alpha)
-            if global_step % save_period == 0:
-                print("Saving model in {}".format(save_dir))
-                saver.save(sess, save_dir, global_step)
-                if self.cfg.save_images:
-                    gen_images = self.generate_images(save_tag, alpha=alpha)
-                    plt.figure(figsize=(10, 10))
-                    grid = image_loader.grid_batch_images(gen_images)
-                    filename = os.path.join(img_save_dir, str(global_step) + '.png')
-                    plt.imsave(filename, grid)
-        print("Saving model in {}".format(save_dir))
-        saver.save(sess, save_dir, global_step)
+            self.train_step(real_image_batch, noise, verbose=verbose)
+
+            # if global_step % display_period == 0:
+            #     _, global_step, d_loss, merged_res = \
+            #         sess.run([self.d_train_op, self.global_step, self.d_loss, merged],
+            #                     feed_dict=feed_dict)
+            # else:
+            #     _, global_step, d_loss = \
+            #         sess.run([self.d_train_op, self.global_step, self.d_loss],
+            #                 feed_dict=feed_dict)
+
+            # g_loss = 0.
+            # if global_step % n_critic == 0:
+            #     _, _, g_loss = \
+            #         sess.run([self.g_train_op, self.ema_op, self.g_loss],
+            #                     feed_dict=feed_dict)
+            # sum_g_loss += g_loss
+            # sum_d_loss += d_loss
+
+            # Change Alpha
+            if self.transition:
+                alpha_step = 1. / self.n_iters
+                self.alpha = min(1., self.cfg.fade_alpha+self.global_step*alpha_step)
+
+            # Write logged losses
+            if self.global_step % self.display_period == 0:
+                
+                with self.gen_summary_writer.as_default():
+                    # tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.global_step)
+
+                with self.dis_summary_writer.as_default():
+                    # tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_wasserstein_loss', self.metrics['discriminator_wasserstein_loss'].result(), step=self.global_step)
+                    tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.global_step)
+                    tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.global_step)
+                    tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.global_step)
+
+                # Save Images
+                predicted_image = self.Generator(noise, training=False)
+                predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
+                with self.gen_summary_writer.as_default():
+                    tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.global_step)
+
+                # Take a look at real images
+                real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+                with self.dis_summary_writer.as_default():
+                    tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.global_step)
+
+                # Save Checkpoint
+                if self.overall_steps % self.save_period == 0:
+                    self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+
+                # Reset Losses
+                for k in self.metrics:
+                    self.metrics[k].reset_states()
+
+
+                # writer.add_summary(merged_res, global_step)
+                # print("After {} iterations".format(global_step),
+                #         "Discriminator loss : {:3.5f}  "
+                #         .format(sum_d_loss / display_period),
+                #         "Generator loss : {:3.5f}"
+                #         .format(sum_g_loss / display_period * n_critic))
+                # sum_g_loss, sum_d_loss = 0., 0.
+                if self.transition:
+                    print("Using alpha = ", self.alpha)
+
+
+        #     if global_step % save_period == 0:
+        #         print("Saving model in {}".format(save_dir))
+        #         saver.save(sess, save_dir, global_step)
+        #         if self.cfg.save_images:
+        #             gen_images = self.generate_images(save_tag, alpha=alpha)
+        #             plt.figure(figsize=(10, 10))
+        #             grid = image_loader.grid_batch_images(gen_images)
+        #             filename = os.path.join(img_save_dir, str(global_step) + '.png')
+        #             plt.imsave(filename, grid)
+        # print("Saving model in {}".format(save_dir))
+        # saver.save(sess, save_dir, global_step)
 
     def train_resolution(self):
         """ Train the model. """
@@ -444,24 +554,24 @@ class PGGAN(object):
             print("Saving model in {}".format(save_dir))
             saver.save(sess, save_dir, global_step)
 
-    def generate_images(self, model, batch_z=None, alpha=0.):
-        """Runs generator to generate images"""
-        batch_size = 64  # self.cfg.batch_size
-        z_dim = self.cfg.z_dim
-        if batch_z is None:
-            batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
-        # saver = tf.train.Saver(self.ema_vars)
-        saver = tf.train.Saver()
-        feed_dict = {self.tf_placeholders['z']: batch_z,
-                     self.tf_placeholders['alpha']: alpha}
-        image_loader = self.image_loader
-        gen = self.build_generator(training=False)
+    # def generate_images(self, model, batch_z=None, alpha=0.):
+    #     """Runs generator to generate images"""
+    #     batch_size = 64  # self.cfg.batch_size
+    #     z_dim = self.cfg.z_dim
+    #     if batch_z is None:
+    #         batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
+    #     # saver = tf.train.Saver(self.ema_vars)
+    #     saver = tf.train.Saver()
+    #     feed_dict = {self.tf_placeholders['z']: batch_z,
+    #                  self.tf_placeholders['alpha']: alpha}
+    #     image_loader = self.image_loader
+    #     gen = self.build_generator(training=False)
 
-        with tf.Session() as sess:
-            self.load(sess, saver, model)
-            gen_images = sess.run(gen, feed_dict=feed_dict)
-            gen_images = image_loader.postprocess_image(gen_images)
-            return gen_images
+    #     with tf.Session() as sess:
+    #         self.load(sess, saver, model)
+    #         gen_images = sess.run(gen, feed_dict=feed_dict)
+    #         gen_images = image_loader.postprocess_image(gen_images)
+    #         return gen_images
 
     def load(self, sess, saver, tag=None):
         """ Load the trained model. """
