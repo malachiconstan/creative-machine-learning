@@ -1,9 +1,10 @@
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
+# import tensorflow.compat.v1 as tf
+# tf.disable_v2_behavior()
+import tensorflow as tf
 import numpy as np
-from model import Model
+# from model import Model
 
-class EqualisedInitialiser(tf.keras.initializers.initializer):
+class EqualisedInitialiser(tf.keras.initializers.Initializer):
     def __init__(self):
         pass
 
@@ -34,7 +35,7 @@ class EqualisedConv2D(tf.keras.layers.Layer):
         self.bias_init = tf.keras.initializers.Zeros()
 
     def build(self, input_shape):
-        input_channels = input_shape.shape[-1]
+        input_channels = input_shape[-1]
         self.kernel_size = [self.kernel_size, self.kernel_size, input_channels, self.output_channels]
         self.bias_size = [self.output_channels]
 
@@ -51,7 +52,7 @@ class PixelwiseNorm(tf.keras.layers.Layer):
         self.epsilon = epsilon
 
     def call(self, X):
-        return X / tf.math.sqrt(tf.math.reduce_mean(X * X, axis=3, keep_dims=True) + self.epsilon)
+        return X / tf.math.sqrt(tf.math.reduce_mean(X * X, axis=3, keepdims=True) + self.epsilon)
 
 class EqualisedConv2DModule(tf.keras.Model):
     def __init__(self,
@@ -60,6 +61,7 @@ class EqualisedConv2DModule(tf.keras.Model):
                 kernel_sizes=None,
                 norms=None,
                 padding='same'):
+        super(EqualisedConv2DModule, self).__init__()
 
         if kernel_sizes is None:
             kernel_sizes = [3] * len(output_filters)
@@ -74,7 +76,7 @@ class EqualisedConv2DModule(tf.keras.Model):
             if norm is not None:
                 if norm == 'batch_norm':
                     self.body.add(tf.keras.layers.BatchNormalization())
-                elif norm == 'pixelwise_norm':
+                elif norm == 'pixel_norm':
                     self.body.add(PixelwiseNorm())
                 elif norm == 'layer_norm':
                     self.body.add(tf.keras.layers.LayerNormalization())
@@ -106,10 +108,10 @@ class PGGenerator(tf.keras.Model):
         self.batch_size = cfg.batch_size
 
         # Placeholders
+        self.z_dim = cfg.z_dim
+        self.transition = cfg.transition
+        self.use_tanh = cfg.use_tanh
         self.alpha = alpha
-        self.z_dim = self.cfg.z_dim
-        self.transition = self.cfg.transition
-        self.use_tanh = self.cfg.use_tanh
 
         # Fixed Layers
         self.upsampling_layer = tf.keras.layers.UpSampling2D(size=(2,2), interpolation='nearest')
@@ -119,7 +121,7 @@ class PGGenerator(tf.keras.Model):
         self.first_conv = EqualisedConv2DModule(output_filters=[feat_depth, feat_depth],
                                                 leak=self.leak,
                                                 kernel_sizes=[4,3],
-                                                norms=[None, self.cfg.norm_g]
+                                                norms=[None, cfg.norm_g]
                                                 )
         
         self.subsequent_conv = []
@@ -131,13 +133,32 @@ class PGGenerator(tf.keras.Model):
             self.subsequent_conv.append(EqualisedConv2DModule(
                                         output_filters=[feat_depth, feat_depth],
                                         leak=self.leak,
-                                        norms=[None, self.cfg.norm_g]
+                                        norms=[None, cfg.norm_g]
                                         ))
         assert r == self.res, '{:} not equal to {:}'.format(r, self.res)
 
         # To RGB Layers using 1x1 convolution
-        self.to_image_conv = EqualisedConv2D(self.cfg.input_shape[-1], 1)
-        self.to_image_conv_prime = EqualisedConv2D(self.cfg.input_shape[-1], 1)
+        self.to_image_conv = EqualisedConv2D(cfg.input_shape[-1], 1)
+        self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1)
+
+    @property
+    def alpha(self):
+        """
+        Get alpha value
+        """
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        """
+        Update the value of the merging factor alpha
+        Args:
+            - alpha (float): merging factor, must be in [0, 1]
+        """
+        if value < 0 or value > 1:
+            raise ValueError("alpha must be in [0,1]")
+
+        self._alpha = value
 
     def call(self, z, verbose=False):
 
@@ -187,7 +208,7 @@ class PGDiscriminator(tf.keras.Model):
 
         # Placeholders
         self.alpha = alpha
-        self.transition = self.cfg.transition
+        self.transition = cfg.transition
 
         # Fixed Layers
         self.downsample_layer = tf.keras.layers.AveragePooling2D(pool_size=(2,2))
@@ -196,8 +217,8 @@ class PGDiscriminator(tf.keras.Model):
         self.feat_depths = [min(self.nf_max, self.nf_min * 2 ** i)for i in range(self.n_scalings)]
         self.from_image_conv = EqualisedConv2D(self.feat_depths[-self.n_layers], 1)
 
-        norm = self.cfg.norm_d
-        if (self.cfg.loss_mode == 'wgan_gp') and (norm == 'batch_norm'):
+        norm = cfg.norm_d
+        if (cfg.loss_mode == 'wgan_gp') and (norm == 'batch_norm'):
             norm = None
 
         r = self.res
@@ -225,6 +246,25 @@ class PGDiscriminator(tf.keras.Model):
         # Classification layer
         self.classifier = tf.keras.layers.Dense(1)
 
+    @property
+    def alpha(self):
+        """
+        Get alpha value
+        """
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        """
+        Update the value of the merging factor alpha
+        Args:
+            - alpha (float): merging factor, must be in [0, 1]
+        """
+        if value < 0 or value > 1:
+            raise ValueError("alpha must be in [0,1]")
+
+        self._alpha = value
+
     def minibatch_stddev(self, X):
         _, h, w, _ = X.get_shape().as_list()
         new_feat_shape = [self.batch_size, h, w, 1]
@@ -234,7 +274,6 @@ class PGDiscriminator(tf.keras.Model):
         new_feat = tf.tile(stddev, multiples=new_feat_shape)
         return tf.concat([X, new_feat], axis=3)
         
-
     def call(self, input_, verbose=False):
     
         X = self.from_image_conv(input_)
@@ -252,180 +291,181 @@ class PGDiscriminator(tf.keras.Model):
         X = self.classifier(X)
 
         return X
-class DCGAN(Model):
-    def __init__(self, cfg):
-        self.alpha = cfg.leakyRelu_alpha
-        input_size, _, nc = cfg.input_shape
-        self.res = cfg.resolution
-        self.min_res = cfg.min_resolution
-        # number of times to upsample/downsample for full resolution:
-        self.n_scalings = int(np.log2(input_size / self.min_res))
-        # number of times to upsample/downsample for current resolution:
-        self.n_layers = int(np.log2(self.res / self.min_res))
-        self.nf_min = cfg.nf_min  # min feature depth
-        self.nf_max = cfg.nf_max  # max feature depth
-        self.batch_size = cfg.batch_size
-        Model.__init__(self, cfg)
 
-    def leaky_relu(self, input_):
-        return tf.maximum(self.alpha * input_, input_)
+# class DCGAN(Model):
+#     def __init__(self, cfg):
+#         self.alpha = cfg.leakyRelu_alpha
+#         input_size, _, nc = cfg.input_shape
+#         self.res = cfg.resolution
+#         self.min_res = cfg.min_resolution
+#         # number of times to upsample/downsample for full resolution:
+#         self.n_scalings = int(np.log2(input_size / self.min_res))
+#         # number of times to upsample/downsample for current resolution:
+#         self.n_layers = int(np.log2(self.res / self.min_res))
+#         self.nf_min = cfg.nf_min  # min feature depth
+#         self.nf_max = cfg.nf_max  # max feature depth
+#         self.batch_size = cfg.batch_size
+#         Model.__init__(self, cfg)
 
-    def add_minibatch_stddev_feat(self, input_):
-        _, h, w, _ = input_.get_shape().as_list()
-        new_feat_shape = [self.cfg.batch_size, h, w, 1]
+#     def leaky_relu(self, input_):
+#         return tf.maximum(self.alpha * input_, input_)
 
-        mean, var = tf.nn.moments(input_, axes=[0], keep_dims=True)
-        stddev = tf.sqrt(tf.reduce_mean(var, keep_dims=True))
-        new_feat = tf.tile(stddev, multiples=new_feat_shape)
-        return tf.concat([input_, new_feat], axis=3)
+#     def add_minibatch_stddev_feat(self, input_):
+#         _, h, w, _ = input_.get_shape().as_list()
+#         new_feat_shape = [self.cfg.batch_size, h, w, 1]
 
-    def pixelwise_norm(self, a):
-        return a / tf.sqrt(tf.reduce_mean(a * a, axis=3, keep_dims=True) + 1e-8)
+#         mean, var = tf.nn.moments(input_, axes=[0], keep_dims=True)
+#         stddev = tf.sqrt(tf.reduce_mean(var, keep_dims=True))
+#         new_feat = tf.tile(stddev, multiples=new_feat_shape)
+#         return tf.concat([input_, new_feat], axis=3)
 
-    def conv2d(self, input_, n_filters, k_size, padding='same'):
-        if not self.cfg.weight_scale:
-            return tf.layers.conv2d(input_, n_filters, k_size, padding=padding)
+#     def pixelwise_norm(self, a):
+#         return a / tf.sqrt(tf.reduce_mean(a * a, axis=3, keep_dims=True) + 1e-8)
 
-        n_feats_in = input_.get_shape().as_list()[-1]
-        fan_in = k_size * k_size * n_feats_in
-        c = tf.constant(np.sqrt(2. / fan_in), dtype=tf.float32)
-        kernel_init = tf.random_normal_initializer(stddev=1.)
-        w_shape = [k_size, k_size, n_feats_in, n_filters]
-        w = tf.get_variable('kernel', shape=w_shape, initializer=kernel_init)
-        w = c * w
-        strides = [1, 1, 1, 1]
-        net = tf.nn.conv2d(input_, w, strides, padding=padding.upper())
-        b = tf.get_variable('bias', [n_filters],
-                            initializer=tf.constant_initializer(0.))
-        net = tf.nn.bias_add(net, b)
-        return net
+#     def conv2d(self, input_, n_filters, k_size, padding='same'):
+#         if not self.cfg.weight_scale:
+#             return tf.layers.conv2d(input_, n_filters, k_size, padding=padding)
 
-    def up_sample(self, input_):
-        _, h, w, _ = input_.get_shape().as_list()
-        new_size = [2 * h, 2 * w]
-        return tf.image.resize_nearest_neighbor(input_, size=new_size)
+#         n_feats_in = input_.get_shape().as_list()[-1]
+#         fan_in = k_size * k_size * n_feats_in
+#         c = tf.constant(np.sqrt(2. / fan_in), dtype=tf.float32)
+#         kernel_init = tf.random_normal_initializer(stddev=1.)
+#         w_shape = [k_size, k_size, n_feats_in, n_filters]
+#         w = tf.get_variable('kernel', shape=w_shape, initializer=kernel_init)
+#         w = c * w
+#         strides = [1, 1, 1, 1]
+#         net = tf.nn.conv2d(input_, w, strides, padding=padding.upper())
+#         b = tf.get_variable('bias', [n_filters],
+#                             initializer=tf.constant_initializer(0.))
+#         net = tf.nn.bias_add(net, b)
+#         return net
 
-    def down_sample(self, input_):
-        return tf.layers.average_pooling2d(input_, 2, 2)
+#     def up_sample(self, input_):
+#         _, h, w, _ = input_.get_shape().as_list()
+#         new_size = [2 * h, 2 * w]
+#         return tf.image.resize_nearest_neighbor(input_, size=new_size)
 
-    def conv_module(self, input_, n_filters, training, k_sizes=None,
-                    norms=None, padding='same'):
-        conv = input_
-        if k_sizes is None:
-            k_sizes = [3] * len(n_filters)
-        if norms is None:
-            norms = [None, None]
+#     def down_sample(self, input_):
+#         return tf.layers.average_pooling2d(input_, 2, 2)
 
-        # series of conv + lRelu + norm
-        for i, (nf, k_size, norm) in enumerate(zip(n_filters, k_sizes, norms)):
-            var_scope = 'conv_block_' + str(i+1)
-            with tf.variable_scope(var_scope):
-                conv = self.conv2d(conv, nf, k_size, padding=padding)
-                conv = self.leaky_relu(conv)
-                if norm == 'batch_norm':
-                    conv = tf.layers.batch_normalization(conv, training=training)
-                elif norm == 'pixel_norm':
-                    conv = self.pixelwise_norm(conv)
-                elif norm == 'layer_norm':
-                    conv = tf.contrib.layers.layer_norm(conv)
-        return conv
+#     def conv_module(self, input_, n_filters, training, k_sizes=None,
+#                     norms=None, padding='same'):
+#         conv = input_
+#         if k_sizes is None:
+#             k_sizes = [3] * len(n_filters)
+#         if norms is None:
+#             norms = [None, None]
 
-    def to_image(self, input_, resolution):
-        nc = self.cfg.input_shape[-1]
-        var_scope = '{0:}x{0:}'.format(resolution)
-        with tf.variable_scope(var_scope + '/to_image'):
-            out = self.conv2d(input_, nc, 1)
-            return out
+#         # series of conv + lRelu + norm
+#         for i, (nf, k_size, norm) in enumerate(zip(n_filters, k_sizes, norms)):
+#             var_scope = 'conv_block_' + str(i+1)
+#             with tf.variable_scope(var_scope):
+#                 conv = self.conv2d(conv, nf, k_size, padding=padding)
+#                 conv = self.leaky_relu(conv)
+#                 if norm == 'batch_norm':
+#                     conv = tf.layers.batch_normalization(conv, training=training)
+#                 elif norm == 'pixel_norm':
+#                     conv = self.pixelwise_norm(conv)
+#                 elif norm == 'layer_norm':
+#                     conv = tf.contrib.layers.layer_norm(conv)
+#         return conv
 
-    def from_image(self, input_, n_filters, resolution):
-        var_scope = '{0:}x{0:}'.format(resolution)
-        with tf.variable_scope(var_scope + '/from_image'):
-            out = self.conv2d(input_, n_filters, 1)
-            return self.leaky_relu(out)
+#     def to_image(self, input_, resolution):
+#         nc = self.cfg.input_shape[-1]
+#         var_scope = '{0:}x{0:}'.format(resolution)
+#         with tf.variable_scope(var_scope + '/to_image'):
+#             out = self.conv2d(input_, nc, 1)
+#             return out
 
-    def build_generator(self, training):
-        z = self.tf_placeholders['z']
-        z_dim = self.cfg.z_dim
-        feat_size = self.min_res
-        norm = self.cfg.norm_g
+#     def from_image(self, input_, n_filters, resolution):
+#         var_scope = '{0:}x{0:}'.format(resolution)
+#         with tf.variable_scope(var_scope + '/from_image'):
+#             out = self.conv2d(input_, n_filters, 1)
+#             return self.leaky_relu(out)
 
-        with tf.variable_scope('generator', reuse=(not training)):
-            net = tf.reshape(z, (-1, 1, 1, z_dim))
-            padding = int(feat_size / 2)
-            net = tf.pad(net, [[0, 0], [padding - 1, padding],
-                               [padding - 1, padding], [0, 0]])
-            feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
-            r = self.min_res
-            var_scope = '{0:}x{0:}'.format(r)
-            with tf.variable_scope(var_scope):
-                net = self.conv_module(net, [feat_depth, feat_depth],
-                                       training, k_sizes=[4, 3],
-                                       norms=[None, norm])
-            layers = []
-            for i in range(self.n_layers):
-                net = self.up_sample(net)
-                n = self.nf_min * 2 ** (self.n_scalings - i - 1)
-                feat_depth = min(self.nf_max, n)
-                r *= 2
-                var_scope = '{0:}x{0:}'.format(r)
-                with tf.variable_scope(var_scope):
-                    net = self.conv_module(net, [feat_depth, feat_depth],
-                                           training, norms=[norm, norm])
-                layers.append(net)
+#     def build_generator(self, training):
+#         z = self.tf_placeholders['z']
+#         z_dim = self.cfg.z_dim
+#         feat_size = self.min_res
+#         norm = self.cfg.norm_g
 
-            # final layer:
-            assert r == self.res, \
-                '{:} not equal to {:}'.format(r, self.res)
-            net = self.to_image(net, self.res)
-            if self.cfg.transition:
-                alpha = self.tf_placeholders['alpha']
-                branch = layers[-2]
-                branch = self.up_sample(branch)
-                branch = self.to_image(branch, r / 2)
-                net = alpha * net + (1. - alpha) * branch
-            if self.cfg.use_tanh:
-                net = tf.tanh(net)
-            return net
+#         with tf.variable_scope('generator', reuse=(not training)):
+#             net = tf.reshape(z, (-1, 1, 1, z_dim))
+#             padding = int(feat_size / 2)
+#             net = tf.pad(net, [[0, 0], [padding - 1, padding],
+#                                [padding - 1, padding], [0, 0]])
+#             feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
+#             r = self.min_res
+#             var_scope = '{0:}x{0:}'.format(r)
+#             with tf.variable_scope(var_scope):
+#                 net = self.conv_module(net, [feat_depth, feat_depth],
+#                                        training, k_sizes=[4, 3],
+#                                        norms=[None, norm])
+#             layers = []
+#             for i in range(self.n_layers):
+#                 net = self.up_sample(net)
+#                 n = self.nf_min * 2 ** (self.n_scalings - i - 1)
+#                 feat_depth = min(self.nf_max, n)
+#                 r *= 2
+#                 var_scope = '{0:}x{0:}'.format(r)
+#                 with tf.variable_scope(var_scope):
+#                     net = self.conv_module(net, [feat_depth, feat_depth],
+#                                            training, norms=[norm, norm])
+#                 layers.append(net)
 
-    def build_discriminator(self, input_, reuse, training):
-        norm = self.cfg.norm_d
-        if (self.cfg.loss_mode == 'wgan_gp') and (norm == 'batch_norm'):
-            norm = None
-        with tf.variable_scope('discriminator', reuse=reuse):
-            feat_depths = [min(self.nf_max, self.nf_min * 2 ** i)
-                           for i in range(self.n_scalings)]
-            r = self.res
-            net = self.from_image(input_, feat_depths[-self.n_layers], r)
-            for i in range(self.n_layers):
-                feat_depth_1 = feat_depths[-self.n_layers + i]
-                feat_depth_2 = min(self.nf_max, 2 * feat_depth_1)
-                var_scope = '{0:}x{0:}'.format(r)
-                with tf.variable_scope(var_scope):
-                    net = self.conv_module(net, [feat_depth_1, feat_depth_2],
-                                           training, norms=[norm, norm])
-                net = self.down_sample(net)
-                r /= 2
-                # add a transition branch if required
-                if i == 0 and self.cfg.transition:
-                    alpha = self.tf_placeholders['alpha']
-                    input_low = self.down_sample(input_)
-                    idx = -self.n_layers + 1
-                    branch = self.from_image(input_low, feat_depths[idx],
-                                             self.res / 2)
-                    net = alpha * net + (1. - alpha) * branch
+#             # final layer:
+#             assert r == self.res, \
+#                 '{:} not equal to {:}'.format(r, self.res)
+#             net = self.to_image(net, self.res)
+#             if self.cfg.transition:
+#                 alpha = self.tf_placeholders['alpha']
+#                 branch = layers[-2]
+#                 branch = self.up_sample(branch)
+#                 branch = self.to_image(branch, r / 2)
+#                 net = alpha * net + (1. - alpha) * branch
+#             if self.cfg.use_tanh:
+#                 net = tf.tanh(net)
+#             return net
 
-            # add final layer
-            assert r == self.min_res, \
-                '{:} not equal to {:}'.format(r, self.min_res)
-            net = self.add_minibatch_stddev_feat(net)
-            feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
-            var_scope = '{0:}x{0:}'.format(r)
-            with tf.variable_scope(var_scope):
-                net = self.conv_module(net, [feat_depth, feat_depth],
-                                       training, k_sizes=[3, 4],
-                                       norms=[norm, None])
-                net = tf.reduce_mean(net, axis=[1, 2])
-                net = tf.reshape(net, [self.cfg.batch_size, feat_depth])
-                net = tf.layers.dense(net, 1)
-            return net
+#     def build_discriminator(self, input_, reuse, training):
+#         norm = self.cfg.norm_d
+#         if (self.cfg.loss_mode == 'wgan_gp') and (norm == 'batch_norm'):
+#             norm = None
+#         with tf.variable_scope('discriminator', reuse=reuse):
+#             feat_depths = [min(self.nf_max, self.nf_min * 2 ** i)
+#                            for i in range(self.n_scalings)]
+#             r = self.res
+#             net = self.from_image(input_, feat_depths[-self.n_layers], r)
+#             for i in range(self.n_layers):
+#                 feat_depth_1 = feat_depths[-self.n_layers + i]
+#                 feat_depth_2 = min(self.nf_max, 2 * feat_depth_1)
+#                 var_scope = '{0:}x{0:}'.format(r)
+#                 with tf.variable_scope(var_scope):
+#                     net = self.conv_module(net, [feat_depth_1, feat_depth_2],
+#                                            training, norms=[norm, norm])
+#                 net = self.down_sample(net)
+#                 r /= 2
+#                 # add a transition branch if required
+#                 if i == 0 and self.cfg.transition:
+#                     alpha = self.tf_placeholders['alpha']
+#                     input_low = self.down_sample(input_)
+#                     idx = -self.n_layers + 1
+#                     branch = self.from_image(input_low, feat_depths[idx],
+#                                              self.res / 2)
+#                     net = alpha * net + (1. - alpha) * branch
+
+#             # add final layer
+#             assert r == self.min_res, \
+#                 '{:} not equal to {:}'.format(r, self.min_res)
+#             net = self.add_minibatch_stddev_feat(net)
+#             feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
+#             var_scope = '{0:}x{0:}'.format(r)
+#             with tf.variable_scope(var_scope):
+#                 net = self.conv_module(net, [feat_depth, feat_depth],
+#                                        training, k_sizes=[3, 4],
+#                                        norms=[norm, None])
+#                 net = tf.reduce_mean(net, axis=[1, 2])
+#                 net = tf.reshape(net, [self.cfg.batch_size, feat_depth])
+#                 net = tf.layers.dense(net, 1)
+#             return net
 
