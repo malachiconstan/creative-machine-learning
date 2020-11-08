@@ -383,103 +383,108 @@ class PGGANTrainer(object):
         # sum_g_loss, sum_d_loss = 0., 0.
         # batch_gen = image_loader.batch_generator()
 
-        for i in range(self.n_iters):
-            self.global_step += 1
-            self.checkpoint.step.assign_add(1)
-
-            real_image_batch = next(self.train_dataset)
-            real_image_batch = self.resize_image(real_image_batch)
-            noise = tf.random.normal([self.batch_size, self.z_dim])
-
-            # batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
-            # feed_dict = {self.tf_placeholders['z']: batch_z,
-                            # self.tf_placeholders['learning_rate']: learning_rate,
-                            # self.tf_placeholders['alpha']: alpha}
-            
-            self.train_step(real_image_batch, noise, verbose=verbose)
-
-            # if global_step % display_period == 0:
-            #     _, global_step, d_loss, merged_res = \
-            #         sess.run([self.d_train_op, self.global_step, self.d_loss, merged],
-            #                     feed_dict=feed_dict)
-            # else:
-            #     _, global_step, d_loss = \
-            #         sess.run([self.d_train_op, self.global_step, self.d_loss],
-            #                 feed_dict=feed_dict)
-
-            # g_loss = 0.
-            # if global_step % n_critic == 0:
-            #     _, _, g_loss = \
-            #         sess.run([self.g_train_op, self.ema_op, self.g_loss],
-            #                     feed_dict=feed_dict)
-            # sum_g_loss += g_loss
-            # sum_d_loss += d_loss
-
-            # Change Alpha
-            if self.transition:
-                alpha_step = 1. / self.n_iters
-                self.alpha = min(1., self.cfg.fade_alpha+self.global_step*alpha_step)
-
-            # Write logged losses
-            if self.global_step % self.display_period == 0:
+        while True:
+            for real_image_batch in self.train_dataset:
+                self.global_step += 1
+                self.checkpoint.step.assign_add(1)
                 
-                with self.gen_summary_writer.as_default():
-                    # tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
-                    tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.global_step)
+                real_image_batch = self.resize_image(real_image_batch)
+                noise = tf.random.normal([self.batch_size, self.z_dim])
 
-                with self.dis_summary_writer.as_default():
-                    # tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
-                    tf.summary.scalar('discriminator_wasserstein_loss', self.metrics['discriminator_wasserstein_loss'].result(), step=self.global_step)
-                    tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.global_step)
-                    tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.global_step)
-                    tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.global_step)
+                # batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
+                # feed_dict = {self.tf_placeholders['z']: batch_z,
+                                # self.tf_placeholders['learning_rate']: learning_rate,
+                                # self.tf_placeholders['alpha']: alpha}
+                
+                self.train_step(real_image_batch, noise, verbose=verbose)
 
-                # Save Images
-                generated_images = self.Generator(noise, training=False)
-                # generated_images = generated_images[:, :, :, :] * 0.5 + 0.5
-                print('Max ',generated_images.numpy().max())
-                print('min ',generated_images.numpy().min())
-                generated_images_grid = self.image_loader.make_grid(generated_images.numpy())
-                print('Max ',generated_images_grid.max())
-                print('min ',generated_images_grid.min())
-                with self.gen_summary_writer.as_default():
-                    tf.summary.image('Generated Images', tf.expand_dims(generated_images_grid, axis=0), max_outputs=1, step=self.global_step)
+                # if global_step % display_period == 0:
+                #     _, global_step, d_loss, merged_res = \
+                #         sess.run([self.d_train_op, self.global_step, self.d_loss, merged],
+                #                     feed_dict=feed_dict)
+                # else:
+                #     _, global_step, d_loss = \
+                #         sess.run([self.d_train_op, self.global_step, self.d_loss],
+                #                 feed_dict=feed_dict)
 
-                # Take a look at real images
-                # real_image_batch = real_image_batch[:, :, :, :] * 0.5 + 0.5
-                real_images_grid = self.image_loader.make_grid(real_image_batch.numpy())
-                with self.dis_summary_writer.as_default():
-                    tf.summary.image('Real Images', tf.expand_dims(real_images_grid, axis=0), max_outputs=1, step=self.global_step)
+                # g_loss = 0.
+                # if global_step % n_critic == 0:
+                #     _, _, g_loss = \
+                #         sess.run([self.g_train_op, self.ema_op, self.g_loss],
+                #                     feed_dict=feed_dict)
+                # sum_g_loss += g_loss
+                # sum_d_loss += d_loss
 
-                plt.figure(figsize=(10, 10))
-                filename = os.path.join(self.img_save_dir, str(self.global_step) + '_fakes_.png')
-                plt.imsave(filename, generated_images_grid)
-                plt.close()
-
-                plt.figure(figsize=(10, 10))
-                filename = os.path.join(self.img_save_dir, str(self.global_step) + '_reals_.png')
-                plt.imsave(filename, real_images_grid)
-                plt.close()
-
-                # Save Checkpoint
-                if self.global_step % self.save_period == 0:
-                    self.save_check_point(self.cfg.resolution, self.global_step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-
-                # Reset Losses
-                for k in self.metrics:
-                    self.metrics[k].reset_states()
-
-
-                # writer.add_summary(merged_res, global_step)
-                # print("After {} iterations".format(global_step),
-                #         "Discriminator loss : {:3.5f}  "
-                #         .format(sum_d_loss / display_period),
-                #         "Generator loss : {:3.5f}"
-                #         .format(sum_g_loss / display_period * n_critic))
-                # sum_g_loss, sum_d_loss = 0., 0.
+                # Change Alpha
                 if self.transition:
-                    print("Using alpha = ", self.alpha)
+                    alpha_step = 1. / self.n_iters
+                    self.alpha = min(1., self.cfg.fade_alpha+self.global_step*alpha_step)
 
+                # Write logged losses
+                if self.global_step % self.display_period == 0:
+                    
+                    with self.gen_summary_writer.as_default():
+                        # tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
+                        tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.global_step)
+
+                    with self.dis_summary_writer.as_default():
+                        # tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
+                        tf.summary.scalar('discriminator_wasserstein_loss', self.metrics['discriminator_wasserstein_loss'].result(), step=self.global_step)
+                        tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.global_step)
+                        tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.global_step)
+                        tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.global_step)
+
+                    # Save Images
+                    generated_images = self.Generator(noise, training=False)
+                    # generated_images = generated_images[:, :, :, :] * 0.5 + 0.5
+                    print('Max ',generated_images.numpy().max())
+                    print('min ',generated_images.numpy().min())
+                    generated_images_grid = self.image_loader.make_grid(generated_images.numpy())
+                    print('Max ',generated_images_grid.max())
+                    print('min ',generated_images_grid.min())
+                    with self.gen_summary_writer.as_default():
+                        tf.summary.image('Generated Images', tf.expand_dims(generated_images_grid, axis=0), max_outputs=1, step=self.global_step)
+
+                    # Take a look at real images
+                    # real_image_batch = real_image_batch[:, :, :, :] * 0.5 + 0.5
+                    real_images_grid = self.image_loader.make_grid(real_image_batch.numpy())
+                    with self.dis_summary_writer.as_default():
+                        tf.summary.image('Real Images', tf.expand_dims(real_images_grid, axis=0), max_outputs=1, step=self.global_step)
+
+                    plt.figure(figsize=(10, 10))
+                    filename = os.path.join(self.img_save_dir, str(self.global_step) + '_fakes_.png')
+                    plt.imsave(filename, generated_images_grid)
+                    plt.close()
+
+                    plt.figure(figsize=(10, 10))
+                    filename = os.path.join(self.img_save_dir, str(self.global_step) + '_reals_.png')
+                    plt.imsave(filename, real_images_grid)
+                    plt.close()
+
+                    # Save Checkpoint
+                    if self.global_step % self.save_period == 0:
+                        self.save_check_point(self.cfg.resolution, self.global_step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+
+                    # Reset Losses
+                    for k in self.metrics:
+                        self.metrics[k].reset_states()
+
+
+                    # writer.add_summary(merged_res, global_step)
+                    # print("After {} iterations".format(global_step),
+                    #         "Discriminator loss : {:3.5f}  "
+                    #         .format(sum_d_loss / display_period),
+                    #         "Generator loss : {:3.5f}"
+                    #         .format(sum_g_loss / display_period * n_critic))
+                    # sum_g_loss, sum_d_loss = 0., 0.
+                    if self.transition:
+                        print("Using alpha = ", self.alpha)
+
+                if self.global_step > self.n_iters:
+                    break
+            else:
+                continue
+            break
 
         #     if global_step % save_period == 0:
         #         print("Saving model in {}".format(save_dir))
