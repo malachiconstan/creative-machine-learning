@@ -16,12 +16,14 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 class ImageLoader(object):
     def __init__(self, cfg):
         self.cfg = cfg
+        print(f'Loading images from {cfg.data_dir}')
         imgs = glob(cfg.data_dir + "/*.jpg") + \
                glob(cfg.data_dir + "/*.png") + \
                glob(cfg.data_dir + "/*.jpeg") + \
                glob(cfg.data_dir + "/*.bmp")
 
-        self.images = np.array(imgs)
+        self.images = imgs
+        print(f'There are {len(imgs)} images')
         # self.train_idx, self.val_idx = None, None
         # self.train_test_split()
         if self.cfg.preprocess == 'min-max':
@@ -54,11 +56,11 @@ class ImageLoader(object):
     #         new_images = self.test_crop(image)
     #         return (new_images - self.img_mean) / self.img_stddev
 
-    # def postprocess_image(self, imgs):
-    #     new_imgs = imgs * self.img_stddev + self.img_mean
-    #     new_imgs[new_imgs < 0] = 0
-    #     new_imgs[new_imgs > 255] = 255
-    #     return new_imgs
+    def postprocess_image(self, imgs):
+        new_imgs = imgs * self.img_stddev + self.img_mean
+        new_imgs[new_imgs < 0] = 0
+        new_imgs[new_imgs > 255] = 255
+        return new_imgs
 
     # def random_crop(self, img):
     #     """
@@ -252,3 +254,23 @@ class ImageLoader(object):
             new_img = cv2.resize(new_img, None, fx=scale, fy=scale,
                                  interpolation=cv2.INTER_NEAREST)
         return new_img
+
+    def make_grid(self, image_batch):
+        grid = []
+        total_images = image_batch.shape[0]
+        idx = 0
+        for i in range(4):
+            image_row = []
+            for j in range(total_images//4):
+                image_row.append(image_batch[idx])
+                idx += 1
+            image_row = np.array(image_row)
+            image_row = np.concatenate(image_row, axis=0)
+            grid.append(image_row)
+        grid = np.array(grid)
+        grid = np.concatenate(grid, axis=1)
+
+        grid = grid * self.img_stddev + self.img_mean
+        grid = grid.astype(np.uint8)
+        
+        return grid

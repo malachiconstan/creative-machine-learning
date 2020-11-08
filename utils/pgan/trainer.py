@@ -8,19 +8,21 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-import losses
+
 import time
 import datetime as dt
+import json
 
+from utils.pgan.losses import wgan_loss
 from utils.pgan.net import PGGenerator, PGDiscriminator
 from utils.pgan.utils import ImageLoader
 
-class PGGAN(object):
+class PGGANTrainer(object):
     def __init__(self,
-                datapath,
                 cfg,
                 discriminator_optimizer,
                 generator_optimizer,
+                main_directory=os.getcwd(),
                 # loss_iter_evaluation=200,
                 # save_iter=5000,
                 model_label='PGGAN'):
@@ -28,13 +30,11 @@ class PGGAN(object):
 
         # Define directories
         current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
-
-        self.datapath = datapath
-        self.log_dir = os.path.join(os.getcwd(),'pggan_logs')
-        self.image_save_dir = os.path.join(os.getcwd(),'pggan_imgs')
+        self.log_dir = os.path.join(main_directory,'pggan_logs')
+        self.image_save_dir = os.path.join(main_directory,'pggan_imgs')
         self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
         self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
-        self.checkpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
+        self.checkpoint_dir = os.path.join(main_directory,'pggan_checkpoints')
         self.train_config_path = os.path.join(self.checkpoint_dir, f'{model_label}_' + "_train_config.json")
 
         if not os.path.exists(self.log_dir):
@@ -43,24 +43,25 @@ class PGGAN(object):
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
 
-        if config is None:
-            config = {}
-
         self.cfg = cfg
         # self.tf_placeholders = {}
         # self.create_tf_placeholders()
-        self.global_step = tf.Variable(0, name='global_step', trainable=False)
         self.d_train_op, self.g_train_op = None, None
         self.ema_op, self.ema_vars = None, {}
         # self.d_loss, self.g_loss = None, None
         self.gen_images, self.eval_op = None, None
         self.image_loader = ImageLoader(self.cfg)
-        self.train_dataset = iter(self.image_loader.get_image_dataset())
+        self.train_dataset = iter(self.image_loader.get_image_dataset())        
 
-        self.start_scale = 0
-        self.start_iter = 0
+        # Initialise Models
+        self.Generator = PGGenerator(cfg)
+        self.Discriminator = PGDiscriminator(cfg)
 
         # Define Parameters
+        self.start_scale = 0
+        self.start_iter = 0
+        self.global_step = tf.Variable(0, name='global_step', trainable=False)
+
         self.h, self.w, self.c = self.cfg.input_shape
         self.z_dim = self.cfg.z_dim
         self.n_critic = self.cfg.n_critic
@@ -68,10 +69,6 @@ class PGGAN(object):
         self.batch_size = self.cfg.batch_size
         self.transition = self.cfg.transition
         self.alpha = self.cfg.fade_alpha
-
-        # Initialise Models
-        self.Generator = PGGenerator(cfg, alpha = 0.)
-        self.Discriminator = PGDiscriminator(cfg, alpha = 0.)
 
         # Define Optimizers
         self.generator_optimizer = generator_optimizer
@@ -107,24 +104,51 @@ class PGGAN(object):
         self.avgpool2d = tf.keras.layers.AveragePooling2D(pool_size=(2, 2), strides=None, padding='valid', data_format=None)
         self.upsampling2d = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation='nearest')     
 
-    def resize_image(self, image):
-        _, input_size, _, _ = image.get_shape().as_list()
+    def resize_image(self, image, verbose=True):
+        input_size = image.shape[1]
         res = self.cfg.resolution
+
+        if verbose:
+            print('Input size is :', input_size)
+            print('Resolution is :', res)
+
         if input_size == res:
             return image
         new_size = [res, res]
-        new_img = tf.image.resize_nearest_neighbor(image, size=new_size)
-        if self.cfg.transition:
-            alpha = self.tf_placeholders['alpha']
-            low_res_img = tf.layers.average_pooling2d(new_img, 2, 2)
-            low_res_img = \
-                tf.image.resize_nearest_neighbor(low_res_img, size=new_size)
-            new_img = alpha * new_img + (1. - alpha) * low_res_img
+        new_img = tf.image.resize(image, size=new_size, method='nearest')
+        # new_img = tf.image.resize_nearest_neighbor(image, size=new_size)
+        if self.transition:
+            # alpha = self.tf_placeholders['alpha']
+            low_res_img = tf.nn.avg_pool2d(new_img, ksize=2, strides=2, padding='valid')
+            # low_res_img = tf.layers.average_pooling2d(new_img, 2, 2)
+            low_res_img = tf.image.resize(low_res_img, size=new_size, method='nearest')
+            # low_res_img = tf.image.resize_nearest_neighbor(low_res_img, size=new_size)
+            new_img = self.alpha * new_img + (1. - self.alpha) * low_res_img
         return new_img
+
+    @property
+    def alpha(self):
+        """
+        Get alpha value
+        """
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        """
+        Update the value of the merging factor alpha
+        Args:
+            - alpha (float): merging factor, must be in [0, 1]
+        """
+        if value < 0 or value > 1:
+            raise ValueError("alpha must be in [0,1]")
+
+        self._alpha = value
+        self.Generator.alpha = value
+        self.Discriminator.alpha = value
 
     def train_step(self, real_images, noise, verbose=False):
         # tf.summary.image('images_real_original_size', images_real, 8)
-        real_images = self.resize_image(real_images)
         # tf.summary.image('images_real', images_real, 8)
 
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
@@ -133,13 +157,13 @@ class PGGAN(object):
             real_predictions = self.Discriminator(real_images, training=True)
             generated_images = self.Generator(noise, training=True)
             fake_predictions = self.Discriminator(generated_images, training=True)
-            discriminator_wloss, generator_wloss = losses.wgan_loss(real_predictions, fake_predictions)
+            discriminator_wloss, generator_wloss = wgan_loss(real_predictions, fake_predictions)
 
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator and Generator')
             
             # 2. Gradient Penalty Loss
-            alpha = tf.random.uniform(minval=0., maxval=1.)
+            alpha = tf.random.uniform(shape=[], minval=0., maxval=1.)
             differences = generated_images - real_images
             interpolated = real_images + alpha * differences
 
@@ -199,8 +223,8 @@ class PGGAN(object):
         if verbose:
             print('Computed loss gradients')
         
-        self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.Generator.trainable_variables))
-        self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.Discriminator.trainable_variables))
+        self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.Generator.trainable_variables))
+        self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.Discriminator.trainable_variables))
 
         # t_vars = tf.trainable_variables()
         # d_vars = [var for var in t_vars if var.name.startswith('discriminator')]
@@ -222,20 +246,19 @@ class PGGAN(object):
         #     self.g_train_op = g_solver.minimize(g_loss, var_list=g_vars)
         #     self.d_loss, self.g_loss = d_loss, g_loss
 
-    def save_check_point(self, scale, iter, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
+    def save_check_point(self, resolution, global_step, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
         save_path = self.checkpoint_manager.save()
         if verbose:
-            print('Checkpoint step at: ',int(self.checkpoint.step))
             print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
 
         # Tmp Configuration
-        outConfig = {'scale': scale, 'iter': iter}
+        # outConfig = {'scale': scale, 'iter': iter}
 
-        with open(self.temp_config_path, 'w') as fp:
-            json.dump(outConfig, fp, indent=4)
+        # with open(self.temp_config_path, 'w') as fp:
+        #     json.dump(outConfig, fp, indent=4)
         
-        if verbose:
-            print('Saved temp outconfig to: ',self.temp_config_path)
+        # if verbose:
+        #     print('Saved temp outconfig to: ',self.temp_config_path)
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -245,8 +268,8 @@ class PGGAN(object):
                     raise NotADirectoryError('Drive not mounted')
                 os.makedirs(g_drive_path)
 
-            checkpoint_path = os.path.join(g_drive_path,'checkpoints.zip')
-            logs_path = os.path.join(g_drive_path,'logs.zip')
+            checkpoint_path = os.path.join(g_drive_path,'pggan_checkpoints.zip')
+            logs_path = os.path.join(g_drive_path,'pggan_logs.zip')
 
             copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path)
             copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
@@ -256,61 +279,71 @@ class PGGAN(object):
     def load_saved_training(self, load_from_g_drive=False):
         """
         Load a given checkpoint.
-        """ 
+        """
+
         if self.colab and load_from_g_drive:
             from utils.drive_helper import extract_data_g_drive
-            extract_data_g_drive('CML/checkpoints.zip', mounted=True, extracting_checkpoints=True)
+            extract_data_g_drive('CML/pggan_checkpoints.zip', mounted=True, extracting_checkpoints=True)
             print('Extracted checkpoints from colab')
 
         # Load the temp configuration
         # Find latest scale file
-        scale = 0
-        for scale in range(self.modelConfig.n_scales-1,-1,-1):
-            print(scale)
-            path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
-            print(path)
-            if os.path.exists(path):
-                self.temp_config_path = path
-                break
+        # scale = 0
+        # for scale in range(self.modelConfig.n_scales-1,-1,-1):
+        #     print(scale)
+        #     path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+        #     print(path)
+        #     if os.path.exists(path):
+        #         self.temp_config_path = path
+        #         break
 
-        with open(self.temp_config_path,'rb') as infile:
-            tmpConfig = json.load(infile)
-        self.startScale = tmpConfig["scale"]
-        self.startIter = tmpConfig["iter"]
+        # with open(self.temp_config_path,'rb') as infile:
+        #     tmpConfig = json.load(infile)
+        # self.startScale = tmpConfig["scale"]
+        # self.startIter = tmpConfig["iter"]
 
         # Read the training configuration
-        with open(self.train_config_path,'rb') as infile:
-            trainConfig = json.load(infile)
-        self.readTrainConfig(trainConfig)
+        # with open(self.train_config_path,'rb') as infile:
+        #     trainConfig = json.load(infile)
+        # self.readTrainConfig(trainConfig)
 
         # Re-initialize the model
-        self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
+        # self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
         
         # Load saved checkpoint
+        # if self.transition:
+            # self.checkpoint_manager.directory = '{0:}x{0:}'.format(self.cfg.resolution//2)+ '_transition'
+        
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
 
-    def train_resolution_2(self, verbose=True):
+        # if self.transition:
+            # self.checkpoint_manager.directory = self.save_dir
+
+    def train_resolution(self, restore=False, colab=False, load_from_g_drive=False, verbose=True, g_drive_path = '/content/drive/My Drive/CML'):
         """ Train the model. """
+        self.colab = colab
+        self.train_start_time = time.time()
+        self.g_drive_path = g_drive_path
         
         # Create new directories for individual scales/transition
         save_tag = '{0:}x{0:}'.format(self.cfg.resolution)
         if self.transition:
             save_tag += '_transition'
         
-        img_save_dir = os.path.join(self.image_save_dir, save_tag)
-        if not os.path.exists(img_save_dir):
-            os.makedirs(img_save_dir)
+        self.img_save_dir = os.path.join(self.image_save_dir, save_tag)
+        if not os.path.exists(self.img_save_dir):
+            os.makedirs(self.img_save_dir)
         
-        save_dir = os.path.join(self.checkpoint_dir, save_tag)
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        save_dir = os.path.join(save_dir, 'model')
+        self.save_dir = os.path.join(self.checkpoint_dir, save_tag)
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
+
+        # self.checkpoint_manager.directory = self.save_dir
 
         if self.cfg.load_model:
-            pass
-            #TODO: Load model
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
         elif self.transition:
             pass
             #TODO load state from previous resolution
@@ -345,9 +378,6 @@ class PGGAN(object):
             #     print(tag)
             #     self.load(sess, saver_restore, tag=tag)
 
-        self.Generator.alpha = self.alpha
-        self.Discriminator.alpha = self.alpha
-
             # alpha = self.cfg.fade_alpha
         self.global_step = 0
         # sum_g_loss, sum_d_loss = 0., 0.
@@ -358,14 +388,14 @@ class PGGAN(object):
             self.checkpoint.step.assign_add(1)
 
             real_image_batch = next(self.train_dataset)
-            
+            real_image_batch = self.resize_image(real_image_batch)
             noise = tf.random.normal([self.batch_size, self.z_dim])
 
             # batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
             # feed_dict = {self.tf_placeholders['z']: batch_z,
                             # self.tf_placeholders['learning_rate']: learning_rate,
                             # self.tf_placeholders['alpha']: alpha}
-
+            
             self.train_step(real_image_batch, noise, verbose=verbose)
 
             # if global_step % display_period == 0:
@@ -405,19 +435,35 @@ class PGGAN(object):
                     tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.global_step)
 
                 # Save Images
-                predicted_image = self.Generator(noise, training=False)
-                predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
+                generated_images = self.Generator(noise, training=False)
+                # generated_images = generated_images[:, :, :, :] * 0.5 + 0.5
+                print('Max ',generated_images.numpy().max())
+                print('min ',generated_images.numpy().min())
+                generated_images_grid = self.image_loader.make_grid(generated_images.numpy())
+                print('Max ',generated_images_grid.max())
+                print('min ',generated_images_grid.min())
                 with self.gen_summary_writer.as_default():
-                    tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.global_step)
+                    tf.summary.image('Generated Images', tf.expand_dims(generated_images_grid, axis=0), max_outputs=1, step=self.global_step)
 
                 # Take a look at real images
-                real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+                # real_image_batch = real_image_batch[:, :, :, :] * 0.5 + 0.5
+                real_images_grid = self.image_loader.make_grid(real_image_batch.numpy())
                 with self.dis_summary_writer.as_default():
-                    tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.global_step)
+                    tf.summary.image('Real Images', tf.expand_dims(real_images_grid, axis=0), max_outputs=1, step=self.global_step)
+
+                plt.figure(figsize=(10, 10))
+                filename = os.path.join(self.img_save_dir, str(self.global_step) + '_fakes_.png')
+                plt.imsave(filename, generated_images_grid)
+                plt.close()
+
+                plt.figure(figsize=(10, 10))
+                filename = os.path.join(self.img_save_dir, str(self.global_step) + '_reals_.png')
+                plt.imsave(filename, real_images_grid)
+                plt.close()
 
                 # Save Checkpoint
-                if self.overall_steps % self.save_period == 0:
-                    self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+                if self.global_step % self.save_period == 0:
+                    self.save_check_point(self.cfg.resolution, self.global_step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
 
                 # Reset Losses
                 for k in self.metrics:
@@ -447,7 +493,7 @@ class PGGAN(object):
         # print("Saving model in {}".format(save_dir))
         # saver.save(sess, save_dir, global_step)
 
-    def train_resolution(self):
+    def train_res(self):
         """ Train the model. """
         batch_size = self.cfg.batch_size
         n_iters = self.cfg.n_iters

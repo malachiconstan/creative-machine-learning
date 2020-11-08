@@ -1,8 +1,5 @@
-# import tensorflow.compat.v1 as tf
-# tf.disable_v2_behavior()
 import tensorflow as tf
 import numpy as np
-# from model import Model
 
 class EqualisedInitialiser(tf.keras.initializers.Initializer):
     def __init__(self):
@@ -22,9 +19,10 @@ class EqualisedConv2D(tf.keras.layers.Layer):
                 kernel_size,
                 strides=(1,1),
                 padding='same',
-                activation=None
+                activation=None,
+                **kwargs
                 ):
-        super(EqualisedConv2D, self).__init__()
+        super(EqualisedConv2D, self).__init__(**kwargs)
 
         self.kernel_size = kernel_size
         self.output_channels = output_channels
@@ -46,9 +44,12 @@ class EqualisedConv2D(tf.keras.layers.Layer):
         X = tf.nn.conv2d(X, self.kernel, self.strides, self.padding.upper())
         return tf.nn.bias_add(X, self.bias)
 
+    def get_config(self):
+        return dict(kernel_size = self.kernel_size, output_channels = self.output_channels, strides = self.strides, padding = self.padding)
+
 class PixelwiseNorm(tf.keras.layers.Layer):
-    def __init__(self, epsilon = 1e-8):
-        super(PixelwiseNorm, self).__init__()
+    def __init__(self, name='pixel_norm', epsilon = 1e-8):
+        super(PixelwiseNorm, self).__init__(name = name)
         self.epsilon = epsilon
 
     def call(self, X):
@@ -60,8 +61,10 @@ class EqualisedConv2DModule(tf.keras.Model):
                 leak,
                 kernel_sizes=None,
                 norms=None,
-                padding='same'):
-        super(EqualisedConv2DModule, self).__init__()
+                padding='same',
+                module_name='',
+                ):
+        super(EqualisedConv2DModule, self).__init__(name=module_name)
 
         if kernel_sizes is None:
             kernel_sizes = [3] * len(output_filters)
@@ -70,14 +73,15 @@ class EqualisedConv2DModule(tf.keras.Model):
 
         self.body = tf.keras.Sequential()
 
-        for _, (filters, kernel_size, norm) in enumerate(zip(output_filters, kernel_sizes, norms)):
-            self.body.add(EqualisedConv2D(filters, kernel_size, padding=padding))
+        for i, (filters, kernel_size, norm) in enumerate(zip(output_filters, kernel_sizes, norms)):
+            layer_name = module_name + f'_conv_layer_{i+1}'
+            self.body.add(EqualisedConv2D(filters, kernel_size, padding=padding, name=layer_name))
             self.body.add(tf.keras.layers.LeakyReLU(alpha=leak))
             if norm is not None:
                 if norm == 'batch_norm':
                     self.body.add(tf.keras.layers.BatchNormalization())
                 elif norm == 'pixel_norm':
-                    self.body.add(PixelwiseNorm())
+                    self.body.add(PixelwiseNorm(name=module_name + f'_conv_layer_{i+1}_px_norm'))
                 elif norm == 'layer_norm':
                     self.body.add(tf.keras.layers.LayerNormalization())
                 else:
@@ -89,7 +93,6 @@ class EqualisedConv2DModule(tf.keras.Model):
 class PGGenerator(tf.keras.Model):
     def __init__(self,
                 cfg,
-                alpha,
                 name = 'PGGAN_Generator',
                 **kwargs):
         super(PGGenerator, self).__init__(name = name, **kwargs)
@@ -111,21 +114,22 @@ class PGGenerator(tf.keras.Model):
         self.z_dim = cfg.z_dim
         self.transition = cfg.transition
         self.use_tanh = cfg.use_tanh
-        self.alpha = alpha
 
         # Fixed Layers
         self.upsampling_layer = tf.keras.layers.UpSampling2D(size=(2,2), interpolation='nearest')
 
         # Define Convolution Layers
         feat_depth = min(self.nf_max, self.nf_min * 2 ** self.n_scalings)
+        r = self.min_res
         self.first_conv = EqualisedConv2DModule(output_filters=[feat_depth, feat_depth],
                                                 leak=self.leak,
                                                 kernel_sizes=[4,3],
-                                                norms=[None, cfg.norm_g]
+                                                norms=[None, cfg.norm_g],
+                                                module_name='{0:}x{0:}'.format(r),
                                                 )
         
         self.subsequent_conv = []
-        r = self.min_res
+        
         for i in range(self.n_layers):
             n = self.nf_min * 2 ** (self.n_scalings - i - 1)
             feat_depth = min(self.nf_max, n)
@@ -133,13 +137,14 @@ class PGGenerator(tf.keras.Model):
             self.subsequent_conv.append(EqualisedConv2DModule(
                                         output_filters=[feat_depth, feat_depth],
                                         leak=self.leak,
-                                        norms=[None, cfg.norm_g]
+                                        norms=[None, cfg.norm_g],
+                                        module_name='{0:}x{0:}'.format(r),
                                         ))
         assert r == self.res, '{:} not equal to {:}'.format(r, self.res)
 
         # To RGB Layers using 1x1 convolution
-        self.to_image_conv = EqualisedConv2D(cfg.input_shape[-1], 1)
-        self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1)
+        self.to_image_conv = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r))
+        self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2))
 
     @property
     def alpha(self):
@@ -188,7 +193,6 @@ class PGGenerator(tf.keras.Model):
 class PGDiscriminator(tf.keras.Model):
     def __init__(self,
                 cfg,
-                alpha,
                 name = 'PGGAN_Discriminator',
                 **kwargs):
         super(PGDiscriminator, self).__init__(name = name, **kwargs)
@@ -205,9 +209,6 @@ class PGDiscriminator(tf.keras.Model):
         self.nf_min = cfg.nf_min  # min feature depth
         self.nf_max = cfg.nf_max  # max feature depth
         self.batch_size = cfg.batch_size
-
-        # Placeholders
-        self.alpha = alpha
         self.transition = cfg.transition
 
         # Fixed Layers
@@ -215,13 +216,14 @@ class PGDiscriminator(tf.keras.Model):
 
         # Define Convolution Layers
         self.feat_depths = [min(self.nf_max, self.nf_min * 2 ** i)for i in range(self.n_scalings)]
-        self.from_image_conv = EqualisedConv2D(self.feat_depths[-self.n_layers], 1)
 
         norm = cfg.norm_d
         if (cfg.loss_mode == 'wgan_gp') and (norm == 'batch_norm'):
             norm = None
 
         r = self.res
+        self.from_image_conv = EqualisedConv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r))
+
         self.subsequent_conv = []
         for i in range(self.n_layers):
             feat_depth_1 = self.feat_depths[-self.n_layers + i]
@@ -229,11 +231,12 @@ class PGDiscriminator(tf.keras.Model):
             self.subsequent_conv.append(EqualisedConv2DModule(
                                         output_filters=[feat_depth_1, feat_depth_2],
                                         leak=self.leak,
-                                        norms=[norm, norm]
+                                        norms=[norm, norm],
+                                        module_name='{0:}x{0:}'.format(r)
                                         ))
             r /= 2
             if i == 0 and self.transition:
-                self.from_image_conv_prime = EqualisedConv2D(self.feat_depths[-self.n_layers+1], 1)
+                self.from_image_conv_prime = EqualisedConv2D(self.feat_depths[-self.n_layers+1], 1, name='{0:}x{0:}_from_rgb_prime'.format(r//2))
 
         assert r == self.min_res, '{:} not equal to {:}'.format(r, self.min_res)
 
@@ -241,10 +244,12 @@ class PGDiscriminator(tf.keras.Model):
         self.final_conv_module = EqualisedConv2DModule(output_filters=[self.final_feat_depth, self.final_feat_depth],
                                                         leak=self.leak,
                                                         kernel_sizes=[3,4],
-                                                        norms=[norm,None])
+                                                        norms=[norm,None],
+                                                        module_name='{0:}x{0:}'.format(r)
+                                                        )
 
         # Classification layer
-        self.classifier = tf.keras.layers.Dense(1)
+        self.classifier = tf.keras.layers.Dense(1, name='classifier')
 
     @property
     def alpha(self):
@@ -285,6 +290,7 @@ class PGDiscriminator(tf.keras.Model):
                 X_prime = self.from_image_conv_prime(X_prime)
                 X = self.alpha * X + (1.-self.alpha) * X_prime
 
+        X = self.minibatch_stddev(X)
         X = self.final_conv_module(X)
         X = tf.reduce_mean(X, axis=[1, 2])
         X = tf.reshape(X, [self.batch_size, self.final_feat_depth])
