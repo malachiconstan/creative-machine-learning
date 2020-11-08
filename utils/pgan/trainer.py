@@ -51,7 +51,7 @@ class PGGANTrainer(object):
         # self.d_loss, self.g_loss = None, None
         self.gen_images, self.eval_op = None, None
         self.image_loader = ImageLoader(self.cfg)
-        self.train_dataset = iter(self.image_loader.get_image_dataset())        
+        self.train_dataset = self.image_loader.get_image_dataset()
 
         # Initialise Models
         self.Generator = PGGenerator(cfg)
@@ -74,16 +74,6 @@ class PGGANTrainer(object):
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.ema = tf.train.ExponentialMovingAverage(decay=0.999)
-        
-        # Checkpoints
-        self.save_period = self.cfg.save_period
-        self.checkpoint = tf.train.Checkpoint(step = tf.Variable(0),
-            generator_optimizer=self.generator_optimizer,
-            discriminator_optimizer=self.discriminator_optimizer,
-            generator=self.Generator,
-            discriminator=self.Discriminator
-        )
-        self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.checkpoint_dir, max_to_keep=3)
 
         # Logging
         self.display_period = self.cfg.display_period
@@ -340,7 +330,15 @@ class PGGANTrainer(object):
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
 
-        # self.checkpoint_manager.directory = self.save_dir
+        # Initialise Checkpoints
+        self.save_period = self.cfg.save_period
+        self.checkpoint = tf.train.Checkpoint(step = tf.Variable(0),
+            generator_optimizer=self.generator_optimizer,
+            discriminator_optimizer=self.discriminator_optimizer,
+            generator=self.Generator,
+            discriminator=self.Discriminator
+        )
+        self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.save_dir, max_to_keep=3)
 
         if self.cfg.load_model:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
@@ -385,10 +383,11 @@ class PGGANTrainer(object):
 
         while True:
             for real_image_batch in self.train_dataset:
+                print(f'Current step: {self.global_step}/{self.n_iters}')
                 self.global_step += 1
                 self.checkpoint.step.assign_add(1)
                 
-                real_image_batch = self.resize_image(real_image_batch)
+                real_image_batch = self.resize_image(real_image_batch, verbose=verbose)
                 noise = tf.random.normal([self.batch_size, self.z_dim])
 
                 # batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
@@ -437,11 +436,11 @@ class PGGANTrainer(object):
                     # Save Images
                     generated_images = self.Generator(noise, training=False)
                     # generated_images = generated_images[:, :, :, :] * 0.5 + 0.5
-                    print('Max ',generated_images.numpy().max())
-                    print('min ',generated_images.numpy().min())
+                    # print('Max ',generated_images.numpy().max())
+                    # print('min ',generated_images.numpy().min())
                     generated_images_grid = self.image_loader.make_grid(generated_images.numpy())
-                    print('Max ',generated_images_grid.max())
-                    print('min ',generated_images_grid.min())
+                    # print('Max ',generated_images_grid.max())
+                    # print('min ',generated_images_grid.min())
                     with self.gen_summary_writer.as_default():
                         tf.summary.image('Generated Images', tf.expand_dims(generated_images_grid, axis=0), max_outputs=1, step=self.global_step)
 
@@ -460,6 +459,9 @@ class PGGANTrainer(object):
                     filename = os.path.join(self.img_save_dir, str(self.global_step) + '_reals_.png')
                     plt.imsave(filename, real_images_grid)
                     plt.close()
+
+                    if verbose:
+                        print('Saved images to ', self.img_save_dir)
 
                     # Save Checkpoint
                     if self.global_step % self.save_period == 0:
