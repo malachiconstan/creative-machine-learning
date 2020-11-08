@@ -382,8 +382,8 @@ class PGGANTrainer(object):
         # batch_gen = image_loader.batch_generator()
 
         while True:
+            print(f'Current step: {self.global_step}/{self.n_iters}')
             for real_image_batch in self.train_dataset:
-                print(f'Current step: {self.global_step}/{self.n_iters}')
                 self.global_step += 1
                 self.checkpoint.step.assign_add(1)
                 
