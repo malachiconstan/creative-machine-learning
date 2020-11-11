@@ -9,8 +9,8 @@ import numpy as np
 
 from PIL import Image
 from utils.preprocessing import random_image_sample, get_image_dataset, get_cgan_image_datasets
-from utils.models import Generator, Discriminator, CGGenerator, CGDiscriminator
-from utils.train import train, CycleGANTrainer
+from utils.models import Generator, Discriminator, CGGenerator, CGDiscriminator, get_classifier
+from utils.train import train, CycleGANTrainer, ClassifierTrainer
 
 import matplotlib.pyplot as plt
 
@@ -33,7 +33,15 @@ def get_options():
     parser.add_argument('--beta1', default=0.5, type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.5, type=float, help='Adam optimizer beta2.')
     parser.add_argument('--gamma', default=0.9999, type=float, help='Exponential LR scheduler gamma discount factor.')
+
+    # CGAN options
     parser.add_argument('--cgan', action='store_true', help='Run Cycle GAN')
+
+    # Classifier Options
+    parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
+    parser.add_argument('--classifier', action='store_true', help='Train Classifier')
+    
+    # Restore options
     parser.add_argument('--cgan_restore', action='store_true', help='Restore Cycle GAN from checkpoint')
     parser.add_argument('--restore_gdrive', action='store_true', help='Restore from last checkpoint in gdrive')
     parser.add_argument('--clean_data_dir', action='store_true', help='Remove all images in data dir with less than 128 pixel H/W')
@@ -143,6 +151,52 @@ if __name__ == '__main__':
         )
 
         cgan_trainer.train(restore = opt.cgan_restore, colab = colab, load_from_g_drive=opt.restore_gdrive, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML')
+    elif opt.classifier:
+        print('Training Classifier')
+        data_directory = os.path.join(os.getcwd(),'classifier_data')
+
+        train_ds = keras.preprocessing.image_dataset_from_directory(
+            data_directory,
+            labels='inferred',
+            color_mode='rgb',
+            seed=1234,
+            validation_split=0.2,
+            subset="training",
+            image_size=(opt.img_height,opt.img_height),
+            batch_size=opt.batch_size,
+        )
+
+        val_ds = keras.preprocessing.image_dataset_from_directory(
+            data_directory,
+            labels='inferred',
+            color_mode='rgb',
+            seed=1234,
+            validation_split=0.2,
+            subset="validation",
+            image_size=(opt.img_height,opt.img_height),
+            batch_size=opt.batch_size,
+        )
+
+        classifier_net = get_classifier((opt.img_height, opt.img_height, 3), num_classes=10)
+
+        def lr_schedule(epoch):
+            """
+            Returns a custom learning rate that decreases as epochs progress.
+            """
+            learning_rate = opt.lr
+            if epoch > 25:
+                learning_rate = opt.lr/10
+            if epoch > 50:
+                learning_rate = opt.lr/100
+            if epoch > 75:
+                learning_rate = opt.lr/1000
+
+            tf.summary.scalar('learning rate', data=learning_rate, step=epoch)
+            return learning_rate
+
+        trainer = ClassifierTrainer(train_ds, val_ds, classifier_net, tf.keras.optimizers.Adam(learning_rate=opt.lr), lr_schedule)
+
+        trainer.train(opt.epochs, opt.batch_size)
 
     else:
         data_directory = os.path.join(os.getcwd(),'data')

@@ -170,6 +170,66 @@ def train(dataset,
     display.clear_output(wait=True)
     generate_and_save_images(generator,epoch,seed,gen_summary_writer)
 
+class ClassifierTrainer(object):
+    def __init__(self,
+                train_dataset,
+                validation_dataset,
+                model,
+                optimizer,
+                lr_schedule
+                ):
+
+        # Define Directories
+        current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
+
+        self.log_dir = os.path.join(os.getcwd(),'classifier_logs')
+        self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
+        self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
+        self.checkpoint_dir = os.path.join(os.getcwd(),'classifier_checkpoints')
+
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+
+        self.tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
+
+        # Define Checkpoint
+        self.cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=self.checkpoint_dir, verbose=1, save_weights_only=True, save_freq = 'epoch')
+
+        self.model = model
+        self.optimizer = optimizer
+
+        self.train_dataset = train_dataset
+        self.validation_dataset = validation_dataset
+
+        # Define Learning Rate Scheduler
+        self.file_writer = tf.summary.create_file_writer(self.log_dir + "/metrics")
+        self.file_writer.set_as_default()
+
+        self.lr_callback = tf.keras.callbacks.LearningRateScheduler(lr_schedule)
+    
+    def train(self,
+            epochs=10,
+            batch_size=32
+            ):
+
+        self.model.compile(
+            optimizer = self.optimizer,
+            loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+            metrics = ["accuracy"]
+        )
+        
+        self.history = self.model.fit(self.train_dataset,
+                                batch_size=batch_size,
+                                epochs=epochs,
+                                callbacks=[self.cp_callback, self.tensorboard_callback],
+                                validation_data=self.validation_dataset)
+
+        print('Training Completed')
+
+
 class CycleGANTrainer(object):
     def __init__(self,
                 train_datasets,

@@ -5,6 +5,23 @@ import tensorflow_addons as tfa
 from utils.custom_layers import EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
 from utils.config import BaseConfig
 from utils.losses import wgan_loss
+
+def get_classifier(input_shape, num_classes=19):
+
+    base_model = tf.keras.applications.EfficientNetB3(input_shape=input_shape, include_top=False, weights='imagenet')
+    preprocess_input = tf.keras.applications.efficientnet.preprocess_input
+    global_average_layer = tf.keras.layers.GlobalAveragePooling2D()
+    prediction_layer = tf.keras.layers.Dense(num_classes)
+
+    inputs = tf.keras.Input(shape=input_shape)
+    x = preprocess_input(inputs)
+    x = base_model(x)
+    x = global_average_layer(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    outputs = prediction_layer(x)
+    model = tf.keras.Model(inputs, outputs)
+    return model
+
 class Generator(tf.keras.Model):
     def __init__(self, latent_dim, name = 'Vanilla_GAN', upscale = False, **kwargs):
         super(Generator, self).__init__(name = name, **kwargs)
