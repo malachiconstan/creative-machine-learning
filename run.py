@@ -40,6 +40,7 @@ def get_options():
     # Classifier Options
     parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
     parser.add_argument('--classifier', action='store_true', help='Train Classifier')
+    parser.add_argument('--infer', action='store_true', help='Infer Data From Trained Classifier')
     
     # Restore options
     parser.add_argument('--cgan_restore', action='store_true', help='Restore Cycle GAN from checkpoint')
@@ -152,6 +153,7 @@ if __name__ == '__main__':
 
         cgan_trainer.train(restore = opt.cgan_restore, colab = colab, load_from_g_drive=opt.restore_gdrive, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML')
     elif opt.classifier:
+
         print('Training Classifier')
         data_directory = os.path.join(os.getcwd(),'classifier_data')
 
@@ -177,7 +179,12 @@ if __name__ == '__main__':
             batch_size=opt.batch_size,
         )
 
-        classifier_net = get_classifier((opt.img_height, opt.img_height, 3), num_classes=10)
+        folders = 0
+
+        for _, dirnames, _ in os.walk(os.path.join(os.getcwd(),'classifier_data')):
+            folders += len(dirnames)
+
+        classifier_net = get_classifier((opt.img_height, opt.img_height, 3), num_classes=folders)
 
         def lr_schedule(epoch):
             """
@@ -196,7 +203,12 @@ if __name__ == '__main__':
 
         trainer = ClassifierTrainer(train_ds, val_ds, classifier_net, tf.keras.optimizers.Adam(learning_rate=opt.lr), lr_schedule)
 
-        trainer.train(opt.epochs, opt.batch_size)
+        if opt.infer:
+            infer_dir = os.path.join(os.getcwd(),'classifier_infer_data')
+            class_names = os.listdir(data_directory)
+            trainer.infer(infer_dir, opt.img_height, opt.img_height, class_names)
+        else:
+            trainer.train(opt.epochs, opt.batch_size)
 
     else:
         data_directory = os.path.join(os.getcwd(),'data')
