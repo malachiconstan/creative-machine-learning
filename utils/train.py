@@ -182,7 +182,8 @@ class ClassifierTrainer(object):
                 ):
 
         # Define Directories
-        self.log_dir = os.path.join(os.getcwd(),'classifier_logs')
+        current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
+        self.log_dir = os.path.join(os.getcwd(),'classifier_logs',current_time)
         self.checkpoint_dir = os.path.join(os.getcwd(),'classifier_checkpoints')
 
         if not os.path.exists(self.log_dir):
