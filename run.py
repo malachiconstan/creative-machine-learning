@@ -181,7 +181,7 @@ if __name__ == '__main__':
 
         folders = 0
 
-        for _, dirnames, _ in os.walk(os.path.join(os.getcwd(),'classifier_data')):
+        for _, dirnames, _ in os.walk(data_directory):
             folders += len(dirnames)
 
         classifier_net = get_classifier((opt.img_height, opt.img_height, 3), num_classes=folders)
