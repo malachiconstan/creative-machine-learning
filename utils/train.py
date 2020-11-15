@@ -5,15 +5,17 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import json
 import numpy as np
+import pandas as pd
 
 from PIL import Image
 from IPython import display
 from copy import deepcopy
+from glob import glob
 
 from utils.configs.pggan_config import _C
 from utils.config import BaseConfig, getConfigFromDict, getDictFromConfig
 from utils.models import ProgressiveGAN
-from utils.preprocessing import get_image_dataset
+from utils.preprocessing import get_image_dataset, process_path
 from utils.losses import WGANGPGradientPenalty, cggan_discriminator_loss, cggan_generator_loss, identity_loss, cycle_loss
 
 def discriminator_loss(real_output, fake_output):
@@ -180,11 +182,7 @@ class ClassifierTrainer(object):
                 ):
 
         # Define Directories
-        current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
-
         self.log_dir = os.path.join(os.getcwd(),'classifier_logs')
-        self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
-        self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
         self.checkpoint_dir = os.path.join(os.getcwd(),'classifier_checkpoints')
 
         if not os.path.exists(self.log_dir):
@@ -209,18 +207,18 @@ class ClassifierTrainer(object):
         self.file_writer.set_as_default()
 
         self.lr_callback = tf.keras.callbacks.LearningRateScheduler(lr_schedule)
-    
-    def train(self,
-            epochs=10,
-            batch_size=32
-            ):
 
         self.model.compile(
             optimizer = self.optimizer,
             loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
             metrics = ["accuracy"]
         )
-        
+    
+    def train(self,
+            epochs=10,
+            batch_size=32
+            ):
+
         self.history = self.model.fit(self.train_dataset,
                                 batch_size=batch_size,
                                 epochs=epochs,
@@ -229,6 +227,25 @@ class ClassifierTrainer(object):
 
         print('Training Completed')
 
+    def infer(self,
+            infer_datadir,
+            img_height,
+            img_width,
+            classnames
+            ):
+
+        self.model.load_weights(self.checkpoint_dir)
+        file_paths = glob(os.path.join(infer_datadir,'*.jpeg'))
+        test_pred = tf.stack([process_path(file,img_height,img_width,False,False) for file in file_paths])
+
+        preds = tf.nn.softmax(self.model(test_pred),axis=1).numpy()
+        df_preds = pd.DataFrame(preds)
+        df_preds.index = os.listdir(infer_datadir)
+        df_preds.columns = classnames
+
+        df_preds.to_csv('predictions.csv')
+
+        print('Inference Completed')
 
 class CycleGANTrainer(object):
     def __init__(self,

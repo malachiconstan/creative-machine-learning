@@ -25,4 +25,12 @@ def wgan_loss(d_real, d_fake):
     d_loss = tf.math.reduce_mean(d_fake) - tf.math.reduce_mean(d_real)
     return d_loss, g_loss
 
+def discriminator_loss(real_output, fake_output):
+    real_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([real_output.shape[0],1],0.7,1.2), real_output, from_logits=True) # set noise to 1
+    fake_loss = tf.keras.losses.binary_crossentropy(tf.random.uniform([fake_output.shape[0],1],0,0.3), fake_output, from_logits=True) # set noise to 0
+    total_loss = tf.math.reduce_mean(real_loss) + tf.math.reduce_mean(fake_loss)
+    return total_loss
+
+def generator_loss(fake_output):
+    return tf.math.reduce_mean(tf.keras.losses.binary_crossentropy(tf.random.uniform([fake_output.shape[0],1],0.7,1.2), fake_output, from_logits=True)) # set noise to 1
 

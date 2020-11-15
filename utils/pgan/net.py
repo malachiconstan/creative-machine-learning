@@ -6,7 +6,7 @@ class EqualisedInitialiser(tf.keras.initializers.Initializer):
         pass
 
     def __call__(self, shape, dtype=None):
-        fan_in = shape[0]*shape[1]*shape[2]
+        fan_in = shape[0]*shape[1]*shape[-1]
         self.he_constant = tf.constant(tf.math.sqrt(2./fan_in), dtype=tf.float32)
         return self.he_constant*tf.random.normal(shape, mean=0.0, stddev=1.0, dtype=dtype)
 
@@ -17,7 +17,7 @@ class EqualisedConv2D(tf.keras.layers.Layer):
     def __init__(self,
                 output_channels,
                 kernel_size,
-                strides=(1,1),
+                strides=[1, 1, 1, 1],
                 padding='same',
                 activation=None,
                 **kwargs
@@ -29,7 +29,7 @@ class EqualisedConv2D(tf.keras.layers.Layer):
         self.strides = strides
         self.padding = padding
 
-        self.kernel_init = EqualisedInitialiser()
+        self.kernel_init = tf.keras.initializers.HeNormal() #EqualisedInitialiser()
         self.bias_init = tf.keras.initializers.Zeros()
 
     def build(self, input_shape):
@@ -75,7 +75,8 @@ class EqualisedConv2DModule(tf.keras.Model):
 
         for i, (filters, kernel_size, norm) in enumerate(zip(output_filters, kernel_sizes, norms)):
             layer_name = module_name + f'_conv_layer_{i+1}'
-            self.body.add(EqualisedConv2D(filters, kernel_size, padding=padding, name=layer_name))
+            self.body.add(tf.keras.layers.Conv2D(filters, kernel_size, padding=padding, name=layer_name, kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros'))
+            # self.body.add(EqualisedConv2D(filters, kernel_size, padding=padding, name=layer_name))
             self.body.add(tf.keras.layers.LeakyReLU(alpha=leak))
             if norm is not None:
                 if norm == 'batch_norm':
@@ -143,8 +144,10 @@ class PGGenerator(tf.keras.Model):
         assert r == self.res, '{:} not equal to {:}'.format(r, self.res)
 
         # To RGB Layers using 1x1 convolution
-        self.to_image_conv = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r))
-        self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2))
+        self.to_image_conv = tf.keras.layers.Conv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros')
+        # EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r))
+        # self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2))
+        self.to_image_conv_prime = tf.keras.layers.Conv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros')
 
     @property
     def alpha(self):
@@ -181,6 +184,7 @@ class PGGenerator(tf.keras.Model):
 
         X = self.to_image_conv(X)
         if self.transition:
+            print('Using Transition Route')
             X_prime = self.upsampling_layer(X_prime)
             X_prime = self.to_image_conv_prime(X_prime)
             X = self.alpha*X + (1.-self.alpha)*X_prime
@@ -222,7 +226,8 @@ class PGDiscriminator(tf.keras.Model):
             norm = None
 
         r = self.res
-        self.from_image_conv = EqualisedConv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r))
+        self.from_image_conv = tf.keras.layers.Conv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros') 
+        # EqualisedConv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r))
 
         self.subsequent_conv = []
         for i in range(self.n_layers):
@@ -286,6 +291,7 @@ class PGDiscriminator(tf.keras.Model):
             X = self.subsequent_conv[i](X)
             X = self.downsample_layer(X)
             if i == 0 and self.transition:
+                print('Using Transition Route')
                 X_prime = self.downsample_layer(input_)
                 X_prime = self.from_image_conv_prime(X_prime)
                 X = self.alpha * X + (1.-self.alpha) * X_prime

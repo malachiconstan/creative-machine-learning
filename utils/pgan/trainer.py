@@ -13,9 +13,11 @@ import time
 import datetime as dt
 import json
 
-from utils.pgan.losses import wgan_loss
+from utils.pgan.losses import wgan_loss, discriminator_loss, generator_loss
 from utils.pgan.net import PGGenerator, PGDiscriminator
 from utils.pgan.utils import ImageLoader
+
+from utils.preprocessing import get_image_dataset
 
 class PGGANTrainer(object):
     def __init__(self,
@@ -51,7 +53,7 @@ class PGGANTrainer(object):
         # self.d_loss, self.g_loss = None, None
         self.gen_images, self.eval_op = None, None
         self.image_loader = ImageLoader(self.cfg)
-        self.train_dataset = self.image_loader.get_image_dataset()
+        self.train_dataset = get_image_dataset(os.path.join(os.getcwd(),'data','google_pavilion','*.jpeg'),img_height=self.cfg.resolution,img_width=self.cfg.resolution,batch_size=self.cfg.batch_size,normalize=True,augment=True) #self.image_loader.get_image_dataset()
 
         # Initialise Models
         self.Generator = PGGenerator(cfg)
@@ -133,6 +135,7 @@ class PGGANTrainer(object):
         if value < 0 or value > 1:
             raise ValueError("alpha must be in [0,1]")
 
+
         self._alpha = value
         self.Generator.alpha = value
         self.Discriminator.alpha = value
@@ -147,7 +150,10 @@ class PGGANTrainer(object):
             real_predictions = self.Discriminator(real_images, training=True)
             generated_images = self.Generator(noise, training=True)
             fake_predictions = self.Discriminator(generated_images, training=True)
+            # discriminator_wloss = discriminator_loss(real_predictions, fake_predictions)
+
             discriminator_wloss, generator_wloss = wgan_loss(real_predictions, fake_predictions)
+            # generator_wloss = generator_loss(fake_predictions)
 
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator and Generator')
@@ -197,11 +203,12 @@ class PGGANTrainer(object):
                     print('Obtained Epsilon loss for Discriminator')
 
             total_generator_loss = generator_wloss
-            total_discriminator_loss = discriminator_wloss + gradient_penalty + drift_loss
+            total_discriminator_loss = discriminator_wloss + 0 + drift_loss
+            print(f'Discriminator loss: {total_discriminator_loss} Generator loss: {total_generator_loss}')
 
             # Log losses
             self.metrics['discriminator_wasserstein_loss'](discriminator_wloss)
-            self.metrics['discriminator_wasserstein_gradient_penalty'](gradient_penalty)
+            self.metrics['discriminator_wasserstein_gradient_penalty'](0)
             self.metrics['discriminator_epsilon_loss'](drift_loss)
             self.metrics['discriminator_loss'](total_discriminator_loss)
 
@@ -387,7 +394,7 @@ class PGGANTrainer(object):
                 self.global_step += 1
                 self.checkpoint.step.assign_add(1)
                 
-                real_image_batch = self.resize_image(real_image_batch, verbose=verbose)
+                # real_image_batch = self.resize_image(real_image_batch, verbose=verbose)
                 noise = tf.random.normal([self.batch_size, self.z_dim])
 
                 # batch_z = np.random.normal(0, 1, size=(batch_size, z_dim))
@@ -463,13 +470,18 @@ class PGGANTrainer(object):
                     if verbose:
                         print('Saved images to ', self.img_save_dir)
 
-                    # Save Checkpoint
-                    if self.global_step % self.save_period == 0:
-                        self.save_check_point(self.cfg.resolution, self.global_step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-
                     # Reset Losses
                     for k in self.metrics:
                         self.metrics[k].reset_states()
+
+                    if self.transition:
+                        print("Using alpha = ", self.alpha)
+
+                # Save Checkpoint
+                if self.global_step % self.save_period == 0:
+                    self.save_check_point(self.cfg.resolution, self.global_step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+
+                
 
 
                     # writer.add_summary(merged_res, global_step)
@@ -479,8 +491,6 @@ class PGGANTrainer(object):
                     #         "Generator loss : {:3.5f}"
                     #         .format(sum_g_loss / display_period * n_critic))
                     # sum_g_loss, sum_d_loss = 0., 0.
-                    if self.transition:
-                        print("Using alpha = ", self.alpha)
 
                 if self.global_step > self.n_iters:
                     break
