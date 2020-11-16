@@ -195,7 +195,7 @@ class ClassifierTrainer(object):
         self.tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
 
         # Define Checkpoint
-        self.cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=self.checkpoint_dir, verbose=1, save_weights_only=True, save_freq = 'epoch')
+        self.cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(self.checkpoint_dir,'cp.ckpt'), verbose=1, save_weights_only=True, save_freq = 'epoch')
 
         self.model = model
         self.optimizer = optimizer
