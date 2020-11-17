@@ -235,13 +235,13 @@ class ClassifierTrainer(object):
             classnames
             ):
 
-        self.model.load_weights(self.checkpoint_dir)
+        self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
         file_paths = glob(os.path.join(infer_datadir,'*.jpeg'))
         test_pred = tf.stack([process_path(file,img_height,img_width,False,False) for file in file_paths])
 
         preds = tf.nn.softmax(self.model(test_pred),axis=1).numpy()
         df_preds = pd.DataFrame(preds)
-        df_preds.index = os.listdir(infer_datadir)
+        df_preds.index = [os.path.split(fp)[1] for fp in file_paths]
         df_preds.columns = classnames
 
         df_preds.to_csv('predictions.csv')

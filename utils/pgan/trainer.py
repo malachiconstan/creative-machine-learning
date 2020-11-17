@@ -203,13 +203,13 @@ class PGGANTrainer(object):
                     print('Obtained Epsilon loss for Discriminator')
 
             total_generator_loss = generator_wloss
-            total_discriminator_loss = discriminator_wloss + 0 + drift_loss
+            total_discriminator_loss = discriminator_wloss + gradient_penalty + drift_loss
             print(f'Discriminator loss: {total_discriminator_loss} Generator loss: {total_generator_loss}')
 
             # Log losses
             self.metrics['discriminator_wasserstein_loss'](discriminator_wloss)
-            self.metrics['discriminator_wasserstein_gradient_penalty'](0)
-            self.metrics['discriminator_epsilon_loss'](drift_loss)
+            # self.metrics['discriminator_wasserstein_gradient_penalty'](0)
+            # self.metrics['discriminator_epsilon_loss'](drift_loss)
             self.metrics['discriminator_loss'](total_discriminator_loss)
 
             self.metrics['generator_loss'](total_generator_loss)
@@ -462,10 +462,10 @@ class PGGANTrainer(object):
                     plt.imsave(filename, generated_images_grid)
                     plt.close()
 
-                    plt.figure(figsize=(10, 10))
-                    filename = os.path.join(self.img_save_dir, str(self.global_step) + '_reals_.png')
-                    plt.imsave(filename, real_images_grid)
-                    plt.close()
+                    # plt.figure(figsize=(10, 10))
+                    # filename = os.path.join(self.img_save_dir, str(self.global_step) + '_reals_.png')
+                    # plt.imsave(filename, real_images_grid)
+                    # plt.close()
 
                     if verbose:
                         print('Saved images to ', self.img_save_dir)

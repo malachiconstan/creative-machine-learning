@@ -13,6 +13,35 @@ class EqualisedInitialiser(tf.keras.initializers.Initializer):
     def get_config(self):
         return dict(he_constant = self.he_constant)
 
+
+class MinibatchSTDDEV(tf.keras.layers.Layer):
+    """
+    Reference from official pggan implementation
+    https://github.com/tkarras/progressive_growing_of_gans/blob/master/networks.py
+    
+    Arguments:
+      group_size: a integer number, minibatch must be divisible by (or smaller than) group_size.
+    """
+    def __init__(self, group_size=4):
+        super(MinibatchSTDDEV, self).__init__()
+        self.group_size = group_size
+
+    def call(self, inputs):
+        group_size = tf.minimum(self.group_size, tf.shape(inputs)[0])     # Minibatch must be divisible by (or smaller than) group_size.
+        s = inputs.shape                                             # [NHWC]  Input shape.
+        y = tf.reshape(inputs, [group_size, -1, s[1], s[2], s[3]])   # [GMHWC] Split minibatch into M groups of size G.
+        y = tf.cast(y, tf.float32)                              # [GMHWC] Cast to FP32.
+        y -= tf.reduce_mean(y, axis=0, keepdims=True)           # [GMHWC] Subtract mean over group.
+        y = tf.reduce_mean(tf.square(y), axis=0)                # [MHWC]  Calc variance over group.
+        y = tf.sqrt(y + 1e-8)                                   # [MHWC]  Calc stddev over group.
+        y = tf.reduce_mean(y, axis=[1,2,3], keepdims=True)      # [M111]  Take average over fmaps and pixels.
+        y = tf.cast(y, inputs.dtype)                                 # [M111]  Cast back to original data type.
+        y = tf.tile(y, [group_size, s[1], s[2], 1])             # [NHW1]  Replicate over group and pixels.
+        return tf.concat([inputs, y], axis=-1)                        # [NHWC]  Append as new fmap.
+    
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], input_shape[1], input_shape[2], input_shape[3] + 1)
+
 class EqualisedConv2D(tf.keras.layers.Layer):
     def __init__(self,
                 output_channels,
@@ -53,7 +82,7 @@ class PixelwiseNorm(tf.keras.layers.Layer):
         self.epsilon = epsilon
 
     def call(self, X):
-        return X / tf.math.sqrt(tf.math.reduce_mean(X * X, axis=3, keepdims=True) + self.epsilon)
+        return X / tf.math.sqrt(tf.math.reduce_mean(X * X, axis=-1, keepdims=True) + self.epsilon)
 
 class EqualisedConv2DModule(tf.keras.Model):
     def __init__(self,
@@ -144,10 +173,10 @@ class PGGenerator(tf.keras.Model):
         assert r == self.res, '{:} not equal to {:}'.format(r, self.res)
 
         # To RGB Layers using 1x1 convolution
-        self.to_image_conv = tf.keras.layers.Conv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros')
-        # EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r))
-        # self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2))
-        self.to_image_conv_prime = tf.keras.layers.Conv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros')
+        # self.to_image_conv = tf.keras.layers.Conv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros')
+        self.to_image_conv = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb'.format(r))
+        self.to_image_conv_prime = EqualisedConv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2))
+        # self.to_image_conv_prime = tf.keras.layers.Conv2D(cfg.input_shape[-1], 1, name='{0:}x{0:}_to_rgb_prime'.format(r//2), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros')
 
     @property
     def alpha(self):
@@ -226,8 +255,9 @@ class PGDiscriminator(tf.keras.Model):
             norm = None
 
         r = self.res
-        self.from_image_conv = tf.keras.layers.Conv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros') 
-        # EqualisedConv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r))
+        self.from_image_conv = EqualisedConv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r))
+        #tf.keras.layers.Conv2D(self.feat_depths[-self.n_layers], 1, name='{0:}x{0:}_from_rgb'.format(r), kernel_initializer=tf.keras.initializers.HeNormal(), bias_initializer='zeros') 
+        
 
         self.subsequent_conv = []
         for i in range(self.n_layers):
@@ -256,6 +286,8 @@ class PGDiscriminator(tf.keras.Model):
         # Classification layer
         self.classifier = tf.keras.layers.Dense(1, name='classifier')
 
+        self.minibatch_stddev = MinibatchSTDDEV()
+
     @property
     def alpha(self):
         """
@@ -275,14 +307,14 @@ class PGDiscriminator(tf.keras.Model):
 
         self._alpha = value
 
-    def minibatch_stddev(self, X):
-        _, h, w, _ = X.get_shape().as_list()
-        new_feat_shape = [self.batch_size, h, w, 1]
+    # def minibatch_stddev(self, X):
+    #     _, h, w, _ = X.get_shape().as_list()
+    #     new_feat_shape = [self.batch_size, h, w, 1]
 
-        _, var = tf.nn.moments(X, axes=[0], keepdims=True)
-        stddev = tf.math.sqrt(tf.math.reduce_mean(var, keepdims=True))
-        new_feat = tf.tile(stddev, multiples=new_feat_shape)
-        return tf.concat([X, new_feat], axis=3)
+    #     _, var = tf.nn.moments(X, axes=[0], keepdims=True)
+    #     stddev = tf.math.sqrt(tf.math.reduce_mean(var, keepdims=True))
+    #     new_feat = tf.tile(stddev, multiples=new_feat_shape)
+    #     return tf.concat([X, new_feat], axis=3)
         
     def call(self, input_, verbose=False):
     

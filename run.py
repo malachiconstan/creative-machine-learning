@@ -180,7 +180,6 @@ if __name__ == '__main__':
         )
 
         folders = 0
-
         for _, dirnames, _ in os.walk(data_directory):
             folders += len(dirnames)
 
@@ -205,7 +204,7 @@ if __name__ == '__main__':
 
         if opt.infer:
             infer_dir = os.path.join(os.getcwd(),'classifier_infer_data')
-            class_names = os.listdir(data_directory)
+            class_names = [os.path.basename(os.path.normpath(os.path.dirname(fp))) for fp in glob(os.path.join(data_directory,'*/'))]
             trainer.infer(infer_dir, opt.img_height, opt.img_height, class_names)
         else:
             trainer.train(opt.epochs, opt.batch_size)
