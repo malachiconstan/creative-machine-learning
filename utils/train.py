@@ -560,13 +560,13 @@ class ProgressiveGANTrainer(object):
         self.generate_and_save_images(0, sample_noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
         # Create many tf functions
-        res = self.start_resolution
-        self.discriminator_train_steps = dict()
-        self.generator_train_steps = dict()
-        while res <= self.stop_resolution:
-            self.discriminator_train_steps[res] = self.discriminator_train_step
-            self.generator_train_steps[res] = self.generator_train_step
-        print('Created training steps')
+        # res = self.start_resolution
+        # self.discriminator_train_steps = dict()
+        # self.generator_train_steps = dict()
+        # while res <= self.stop_resolution:
+        #     self.discriminator_train_steps[res] = self.discriminator_train_step
+        #     self.generator_train_steps[res] = self.generator_train_step
+        # print('Created training steps')
 
     def initialise_model(self):
         print(f'Initialising model with resolution {self.start_resolution}')
@@ -780,11 +780,15 @@ class ProgressiveGANTrainer(object):
             self.overall_steps += 1
 
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            self.discriminator_train_steps[resolution](real_image_batch, noise, verbose=verbose)
-            self.generator_train_steps[resolution](noise, verbose=verbose)
+            # self.discriminator_train_steps[resolution](real_image_batch, noise, verbose=verbose)
+            # self.generator_train_steps[resolution](noise, verbose=verbose)
+
+            self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
+            self.generator_train_step(noise, verbose=verbose)
             
             # update alpha
-            self.alpha = min(1., self.alpha + self.resolution_alpha_increment)
+            if resolution > 4:
+                self.alpha = min(1., self.alpha + self.resolution_alpha_increment)
 
             if real_image_batch.shape[0] < self.resolution_batch_size:
                 raise ValueError('Image batch shape less than resolution batch size')
@@ -833,7 +837,7 @@ class ProgressiveGANTrainer(object):
 
         return True
 
-    @tf.function
+    # @tf.function
     def discriminator_train_step(self, real_images, noise, verbose=False):
         epsilon = tf.random.uniform(shape=[self.batch_size, 1, 1, 1], minval=0, maxval=1)
 
@@ -874,7 +878,7 @@ class ProgressiveGANTrainer(object):
         if verbose:
             print('Applied discriminator loss gradients')
 
-    @tf.function
+    # @tf.function
     def generator_train_step(self, noise, verbose=False, return_generated_images=False):
 
         with tf.GradientTape() as g_tape:
