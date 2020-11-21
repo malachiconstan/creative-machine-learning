@@ -854,10 +854,10 @@ class ProgressiveGANTrainer(object):
             if verbose:
                 print('Obtained Wasserstein Gradient Penalty for Discriminator')
             
-            discriminator_wloss_real = tf.math.reduce_mean(self.model.Discriminator(generated_images, training=True))
+            discriminator_wloss_real = -tf.math.reduce_mean(self.model.Discriminator(real_images, training=True))
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on REAL images')
-            discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator(real_images, training=True))
+            discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator(generated_images, training=True))
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on FAKE images')
 
