@@ -275,7 +275,7 @@ class PGGenerator(tf.keras.Model):
         self.upsample_blocks = {}
 
         # 1x1 Convolution to RGB
-        self.to_rgb = {4:EqualizeLearningRate(tf.keras.layers.Conv2D(3,
+        self.to_rgb = {'4':EqualizeLearningRate(tf.keras.layers.Conv2D(3,
                                                                     kernel_size=1,
                                                                     strides=1,
                                                                     padding='same',
@@ -308,7 +308,7 @@ class PGGenerator(tf.keras.Model):
             - depthNewScale (int): depth of each conv layer of the new scale
         """
         self.resolution *= 2
-        self.upsample_blocks[self.resolution] = PGUpSampleBlock(input_filters=512,
+        self.upsample_blocks[str(self.resolution)] = PGUpSampleBlock(input_filters=512,
                                                                 output_filters=512,
                                                                 kernel_size=3,
                                                                 strides=1,
@@ -317,7 +317,7 @@ class PGGenerator(tf.keras.Model):
                                                                 kernel_initializer='he_normal',
                                                                 name=f'Up_{self.resolution}x{self.resolution}')
 
-        self.to_rgb[self.resolution] = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
+        self.to_rgb[str(self.resolution)] = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
                                                                     kernel_size=1,
                                                                     strides=1,
                                                                     padding='same',
@@ -374,17 +374,17 @@ class PGGenerator(tf.keras.Model):
         X = self.input_block(X)
 
         if self.resolution == 4:
-            X = self.to_rgb[self.resolution](X)
+            X = self.to_rgb[str(self.resolution)](X)
             return X
 
         # Fade In
         res = 8
         while res <= self.resolution:
-            X, upsampled_X = self.upsample_blocks[res](X)
+            X, upsampled_X = self.upsample_blocks[str(res)](X)
             res *= 2
 
-        l_X = self.to_rgb[self.resolution](X)
-        r_X = self.to_rgb[self.resolution//2](upsampled_X)
+        l_X = self.to_rgb[str(self.resolution)](X)
+        r_X = self.to_rgb[str(self.resolution//2)](upsampled_X)
 
         # Left Branch
         l_X = self.alpha*l_X
@@ -412,7 +412,7 @@ class PGDiscriminator(tf.keras.Model):
         self.downsample_blocks = {}
 
         # 1x1 Convolution From RGB
-        self.from_rgb = {4:EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+        self.from_rgb = {'4':EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                                     kernel_size=1,
                                                                     strides=1,
                                                                     padding='same',
@@ -451,7 +451,7 @@ class PGDiscriminator(tf.keras.Model):
             - depthNewScale (int): depth of each conv layer of the new scale
         """
         self.resolution *= 2
-        self.downsample_blocks[self.resolution] = PGDownSampleBlock(output_filters1=512,
+        self.downsample_blocks[str(self.resolution)] = PGDownSampleBlock(output_filters1=512,
                                                                 output_filters2=512,
                                                                 kernel_size=3,
                                                                 strides=1,
@@ -460,7 +460,7 @@ class PGDiscriminator(tf.keras.Model):
                                                                 kernel_initializer='he_normal',
                                                                 name=f'Down_{self.resolution}x{self.resolution}')
 
-        self.from_rgb[self.resolution] = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+        self.from_rgb[str(self.resolution)] = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                                     kernel_size=1,
                                                                     strides=1,
                                                                     padding='same',
@@ -516,25 +516,25 @@ class PGDiscriminator(tf.keras.Model):
             print('Calling Discriminator')
 
         if self.resolution == 4:
-            X = self.from_rgb[4](input)
+            X = self.from_rgb['4'](input)
             X = self.conv2d_up_channel(X)
             X = self.output_block(X)
             return X
 
         # Left branch
         l_X = self.downscale(input)
-        l_X = self.from_rgb[self.resolution//2](l_X)
+        l_X = self.from_rgb[str(self.resolution//2)](l_X)
         l_X = (1-self.alpha)*l_X
 
         # Right branch
-        r_X = self.from_rgb[self.resolution](input)
-        r_X = self.downsample_blocks[self.resolution](r_X)
+        r_X = self.from_rgb[str(self.resolution)](input)
+        r_X = self.downsample_blocks[str(self.resolution)](r_X)
         r_X = self.alpha*r_X
 
         X = l_X + r_X
         res = 8
         while res < self.resolution:
-            X = self.downsample_blocks[res](X)
+            X = self.downsample_blocks[str(res)](X)
             res *= 2
 
         X = self.output_block(X)

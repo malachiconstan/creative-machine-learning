@@ -662,18 +662,17 @@ class ProgressiveGANTrainer(object):
         # self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
 
         # Get resolution from latest checkpoint
-        self.start_resolution = tf.train.load_variable(self.checkpoint_dir, 'resolution')
+        self.start_resolution = tf.train.load_variable(self.checkpoint_dir, 'resolution/.ATTRIBUTES/VARIABLE_VALUE')
+        self.overall_steps = tf.train.load_variable(self.checkpoint_dir, 'step/.ATTRIBUTES/VARIABLE_VALUE')
+        self.start_epoch = tf.train.load_variable(self.checkpoint_dir, 'epoch/.ATTRIBUTES/VARIABLE_VALUE')
         self.initialise_model()
         
         # Load saved checkpoint
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
-
-        self.overall_steps = self.checkpoint.step.eval()
-        self.start_epoch = self.checkpoint.epoch.eval()
         
-        print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}')
+        print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
 
     @staticmethod
     def calculate_batch_size(resolution):
@@ -818,7 +817,8 @@ class ProgressiveGANTrainer(object):
                 with self.dis_summary_writer.as_default():
                     tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.overall_steps)
 
-                self.generate_and_save_images(epoch, noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+                sample_noise = tf.random.normal((9, self.latent_dim))
+                self.generate_and_save_images(epoch, sample_noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
