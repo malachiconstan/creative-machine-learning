@@ -748,6 +748,7 @@ class ProgressiveGANTrainer(object):
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
             self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
 
+            print(self.start_epoch, self.epochs)
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
@@ -829,7 +830,7 @@ class ProgressiveGANTrainer(object):
             for k in self.metrics:
                 self.metrics[k].reset_states()
 
-        self.checkpoint.epoch.assign_add(1)
+        self.checkpoint.epoch.assign(epoch)
 
         print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}')
 
