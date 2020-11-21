@@ -180,7 +180,7 @@ class PGUpSampleBlock(tf.keras.Model):
 
         self.upsampling_layer = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')
 
-        self.body = tf.keras.Sequential()
+        self.body = tf.keras.Sequential(name=name+'_body')
         self.body.add(EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters,
                                                                 kernel_size,
                                                                 strides,
@@ -206,7 +206,7 @@ class PGUpSampleBlock(tf.keras.Model):
 
         return self.body(upsampled_X), upsampled_X
 
-class PGDowmSampleBlock(tf.keras.Model):
+class PGDownSampleBlock(tf.keras.Model):
     def __init__(self,
                 output_filters1,
                 output_filters2,
@@ -217,9 +217,9 @@ class PGDowmSampleBlock(tf.keras.Model):
                 kernel_initializer='he_normal',
                 name=''
                 ):
-        super(PGDowmSampleBlock, self).__init__(name=name)
+        super(PGDownSampleBlock, self).__init__(name=name)
 
-        self.body = tf.keras.Sequential()
+        self.body = tf.keras.Sequential(name=name+'_body')
         self.body.add(EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters1,
                                                                 kernel_size,
                                                                 strides,
@@ -251,7 +251,7 @@ class GeneratorInputBlock(tf.keras.Model):
                 ):
         super(GeneratorInputBlock, self).__init__(name=name)
 
-        self.body = tf.keras.Sequential()
+        self.body = tf.keras.Sequential(name=name+'_body')
         
         self.body.add(EqualizeLearningRate(tf.keras.layers.Dense(4*4*latent_dim,
                                         kernel_initializer=kernel_initializer,
@@ -283,7 +283,7 @@ class DiscriminatorOutputBlock(tf.keras.Model):
                 ):
         super(DiscriminatorOutputBlock, self).__init__(name=name)
 
-        self.body = tf.keras.Sequential()
+        self.body = tf.keras.Sequential(name=name+'_body')
         
         self.body.add(MinibatchSTDDEV())
         self.body.add(EqualizeLearningRate(tf.keras.layers.Conv2D(512,

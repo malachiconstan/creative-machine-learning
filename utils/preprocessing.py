@@ -55,9 +55,9 @@ def process_path(file_path,img_height,img_width,normalize=True,augment=True):
 
 
 def configure_for_performance(ds, batch_size):
-    ds = ds.cache()
     ds = ds.shuffle(buffer_size=1000)
     ds = ds.batch(batch_size, drop_remainder=True)
+    ds = ds.cache()
     ds = ds.prefetch(buffer_size=AUTOTUNE)
     return ds
 

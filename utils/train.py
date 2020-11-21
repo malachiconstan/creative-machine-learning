@@ -459,20 +459,15 @@ class ProgressiveGANTrainer(object):
     A class managing a progressive GAN training. Logs, chekpoints,
     visualization, and number iterations are managed here.
     """
-    _defaultConfig = _C
-
-    def getDefaultConfig(self):
-        return ProgressiveGANTrainer._defaultConfig
 
     def __init__(self,
-                 datapath,
-                 discriminator_optimizer,
-                 generator_optimizer,
-                 loss_iter_evaluation=200,
-                 save_iter=5000,
-                 model_label="PGGAN",
-                 config=None
-                 ):
+                config,
+                discriminator_optimizer,
+                generator_optimizer,
+                loss_iter_evaluation=200,
+                save_iter=5000,
+                model_label="PGGAN",
+                ):
         """
         Args:
             - pathdb (string): path to the directorty containing the image
@@ -499,8 +494,9 @@ class ProgressiveGANTrainer(object):
         # Define directories
         current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
 
-        self.datapath = datapath
+        self.datapath = config.datapath
         self.log_dir = os.path.join(os.getcwd(),'pggan_logs')
+        self.img_dir = os.path.join(os.getcwd(),'pggan_imgs')
         self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
         self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
         self.checkpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
@@ -512,17 +508,21 @@ class ProgressiveGANTrainer(object):
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
 
-        if config is None:
-            config = {}
+        if not os.path.exists(self.img_dir):
+            os.makedirs(self.img_dir)
 
-        self.readTrainConfig(config)
+        self.config = config
 
         # Intern state
-        self.startScale = 0
-        self.startIter = 0
+        self.start_resolution = config.resolution
+        self.stop_resolution = config.stop_resolution
+        self.start_epoch = config.start_epoch
+        self.epochs = config.epochs
+        self.batch_size = self.calculate_batch_size(config.resolution)
+        self.latent_dim = config.latent_dim
         self.overall_steps = 0
 
-        self.initModel()
+        self.initialise_model()
 
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
@@ -531,10 +531,12 @@ class ProgressiveGANTrainer(object):
         self.model_label = model_label
         self.save_iter = save_iter
         self.checkpoint = tf.train.Checkpoint(step = tf.Variable(0),
+            epoch = tf.Variable(self.start_epoch),
+            resolution = tf.Variable(self.start_resolution),
             generator_optimizer=self.generator_optimizer,
             discriminator_optimizer=self.discriminator_optimizer,
-            generator=self.model.netG,
-            discriminator=self.model.netD
+            generator=self.model.Generator,
+            discriminator=self.model.Discriminator
         )
         self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, self.checkpoint_dir, max_to_keep=3)
 
@@ -545,7 +547,7 @@ class ProgressiveGANTrainer(object):
             discriminator_wasserstein_loss_fake = tf.keras.metrics.Mean('discriminator_wasserstein_loss_fake', dtype=tf.float32),
             discriminator_wasserstein_gradient_penalty = tf.keras.metrics.Mean('discriminator_wasserstein_gradient_penalty', dtype=tf.float32),
             generator_wasserstein_loss = tf.keras.metrics.Mean('generator_wasserstein_loss', dtype=tf.float32),
-            discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
+            # discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
             discriminator_loss = tf.keras.metrics.Mean('discriminator_loss', dtype=tf.float32),
             generator_loss = tf.keras.metrics.Mean('generator_loss', dtype=tf.float32),
         )
@@ -553,193 +555,42 @@ class ProgressiveGANTrainer(object):
         self.gen_summary_writer = tf.summary.create_file_writer(self.gen_log_dir)
         self.dis_summary_writer = tf.summary.create_file_writer(self.dis_log_dir)
 
-        # Low-res layers
-        self.avgpool2d = tf.keras.layers.AveragePooling2D(pool_size=(2, 2), strides=None, padding='valid', data_format=None)
-        self.upsampling2d = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation='nearest')        
-        
-    def initModel(self, **kwargs):
-        """
-        Initialize the GAN model.
-        """
+        # Test out the Generator
+        sample_noise = tf.random.normal((9, config.latent_dim), seed=0)
+        self.generate_and_save_images(0, sample_noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
+        # Create many tf functions
+        res = self.start_resolution
+        self.discriminator_train_steps = dict()
+        self.generator_train_steps = dict()
+        while res <= self.stop_resolution:
+            self.discriminator_train_steps[res] = self.discriminator_train_step
+            self.generator_train_steps[res] = self.generator_train_step
+        print('Created training steps')
+
+    def initialise_model(self):
+        print(f'Initialising model with resolution {self.start_resolution}')
         self.model = ProgressiveGAN(
-            latent_dim = self.modelConfig.latent_dim,
-            level_0_channels = self.modelConfig.depthScales[0],
-            init_bias_zero = self.modelConfig.init_bias_zero,
-            leaky_relu_leak = self.modelConfig.leaky_relu_leak,
-            per_channel_normalisation = self.modelConfig.per_channel_normalisation,
-            mini_batch_sd = self.modelConfig.mini_batch_sd,
-            equalizedlR = self.modelConfig.equalizedlR,
-            output_dim = self.modelConfig.output_dim,
-            GDPP = self.modelConfig.GDPP,
-            lambdaGP = self.modelConfig.lambdaGP,
-            **kwargs
+            self.start_resolution,
+            self.config.latent_dim,
+            self.config.leaky_relu_leak,
+            self.config.kernel_initializer,
+            self.config.output_activation
         )
 
-    def readTrainConfig(self, config, verbose=True):
-        """
-        Load a permanent configuration describing a models. The variables
-        described in this file are constant through the training.
-        """
-        self.modelConfig = BaseConfig()
-        getConfigFromDict(self.modelConfig, config, self.getDefaultConfig())
+    def generate_and_save_images(self, epoch, test_input, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
+        # Test input is a list include noise and label
+        predictions = self.model(test_input)
+        fig = plt.figure(figsize=figure_size)
+        for i in range(predictions.shape[0]):
+            axs = plt.subplot(subplot[0], subplot[1], i+1)
+            plt.imshow(predictions[i] * 0.5 + 0.5)
+            plt.axis('off')
+        if save:
+            plt.savefig(os.path.join(self.img_dir, '{}x{}_image_at_epoch_{:04d}.png'.format(predictions.shape[1], predictions.shape[2], epoch)))
+        plt.close()
 
-        if self.modelConfig.alphaJumpMode not in ["custom", "linear"]:
-            raise ValueError(
-                "alphaJumpMode should be one of the followings: \
-                'custom', 'linear'")
-
-        if self.modelConfig.alphaJumpMode == "linear":
-
-            self.modelConfig.alphaNJumps[0] = 0
-            self.modelConfig.iterAlphaJump = []
-            self.modelConfig.alphaJumpVals = []
-
-            self.updateAlphaJumps(self.modelConfig.alphaNJumps, self.modelConfig.alphaSizeJumps)
-            
-            if verbose:
-                print('Linear Alpha Jump Vals Updated')
-
-        self.scaleSanityCheck()
-        
-        if verbose:
-            print('Training Configuration Read')
-
-    def scaleSanityCheck(self, verbose=True):
-        '''
-        Sanity check
-        Makes sures that the lists of:
-            * # Channel per scale
-            * Maximum iteration per scale
-            * Number of alpha jumps per scale
-            * The iterations at which the alpha jumps at each scale
-        are all of the same size.
-        '''
-        n_scales = min(len(self.modelConfig.depthScales),
-                       len(self.modelConfig.maxIterAtScale),
-                       len(self.modelConfig.iterAlphaJump),
-                       len(self.modelConfig.alphaJumpVals))
-
-        assert self.modelConfig.depthScales == self.modelConfig.depthScales[:n_scales], 'Size of depthScales wrong'
-        assert self.modelConfig.maxIterAtScale == self.modelConfig.maxIterAtScale[:n_scales], 'Size of maximum iter/scale wrong'
-        assert self.modelConfig.iterAlphaJump == self.modelConfig.iterAlphaJump[:n_scales], 'Size of iterations at which alpha jumps wrong'
-        assert self.modelConfig.alphaJumpVals == self.modelConfig.alphaJumpVals[:n_scales], 'Size of alpha values per scale wrong'
-
-        self.modelConfig.size_scales = [4]
-        for _ in range(1, n_scales):
-            self.modelConfig.size_scales.append(
-                self.modelConfig.size_scales[-1] * 2)
-
-        self.modelConfig.n_scales = n_scales
-
-        if verbose:
-            print('Scale Sanity Check Completed')
-            print('Scales: ',n_scales)
-            print('Scale Sizes: ',self.modelConfig.size_scales)
-
-        # Training functions
-        self.train_steps = [deepcopy(self.train_step) for i in range(n_scales)]
-
-    def updateAlphaJumps(self, nJumpScale, sizeJumpScale):
-        """
-        Given the number of iterations between two updates of alpha at each
-        scale and the number of updates per scale, build the effective values of
-        self.maxIterAtScale and self.alphaJumpVals.
-        Example: If the number of iterations between 2 jumps is 32, and alpha has to be updated 600 times then the 
-        number of iterations at which alpha is updated will be 0, 32, 64 ... 19200 (600*32) and alpha will progressively fall from 1 to 0.
-
-        Args:
-            - nJumpScale (list of int): for each scale, the number of times
-                                        alpha should be updated
-            - sizeJumpScale (list of int): for each scale, the number of
-                                           iterations between two updates
-        """
-
-        n_scales = min(len(nJumpScale), len(sizeJumpScale))
-
-        for scale in range(n_scales):
-
-            self.modelConfig.iterAlphaJump.append([])
-            self.modelConfig.alphaJumpVals.append([])
-
-            if nJumpScale[scale] == 0:
-                self.modelConfig.iterAlphaJump[-1].append(0)
-                self.modelConfig.alphaJumpVals[-1].append(0.0)
-                continue
-
-            diffJump = 1.0 / float(nJumpScale[scale])
-            currVal = 1.0
-            currIter = 0
-
-            while currVal > 0:
-
-                self.modelConfig.iterAlphaJump[-1].append(currIter)
-                self.modelConfig.alphaJumpVals[-1].append(currVal)
-
-                currIter += sizeJumpScale[scale]
-                currVal -= diffJump
-
-            self.modelConfig.iterAlphaJump[-1].append(currIter)
-            self.modelConfig.alphaJumpVals[-1].append(0.0)
-
-    def inScaleUpdate(self, iter, scale, input_real):
-
-        if self.indexJumpAlpha < len(self.modelConfig.iterAlphaJump[scale]):
-            if iter == self.modelConfig.iterAlphaJump[scale][self.indexJumpAlpha]:
-                alpha = self.modelConfig.alphaJumpVals[scale][self.indexJumpAlpha]
-                self.model.updateAlpha(alpha)
-                self.indexJumpAlpha += 1
-
-        if self.model.config.alpha > 0:
-            low_res_real = self.avgpool2d(input_real)
-            low_res_real = self.upsampling2d(low_res_real)
-
-            alpha = self.model.config.alpha
-            input_real = alpha * low_res_real + (1-alpha) * input_real
-
-        return input_real
-
-    def addNewScales(self, configNewScales):
-
-        if configNewScales["alphaJumpMode"] not in ["custom", "linear"]:
-            raise ValueError("alphaJumpMode should be one of the followings: \
-                            'custom', 'linear'")
-
-        if configNewScales["alphaJumpMode"] == 'custom':
-            self.modelConfig.iterAlphaJump = self.modelConfig.iterAlphaJump + \
-                configNewScales["iterAlphaJump"]
-            self.modelConfig.alphaJumpVals = self.modelConfig.alphaJumpVals + \
-                configNewScales["alphaJumpVals"]
-
-        else:
-            self.updateAlphaJumps(configNewScales["alphaNJumps"],
-                                  configNewScales["alphaSizeJumps"])
-
-        self.modelConfig.depthScales = self.modelConfig.depthScales + \
-            configNewScales["depthScales"]
-        self.modelConfig.maxIterAtScale = self.modelConfig.maxIterAtScale + \
-            configNewScales["maxIterAtScale"]
-
-        self.scaleSanityCheck()
-    
-    def saveBaseConfig(self):
-        """
-        Save the model basic configuration (the part that doesn't change with
-        the training's progression) at the given path
-        """
-
-        outConfig = getDictFromConfig(self.modelConfig, self.getDefaultConfig())
-
-        if "alphaJumpMode" in outConfig:
-            if outConfig["alphaJumpMode"] == "linear":
-
-                outConfig.pop("iterAlphaJump", None)
-                outConfig.pop("alphaJumpVals", None)
-
-        with open(self.train_config_path, 'w') as fp:
-            json.dump(outConfig, fp, indent=4)
-
-    def save_check_point(self, scale, iter, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
+    def save_check_point(self, scale, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
         """
         Save a checkpoint at the given directory. Please not that the basic
         configuration won't be saved.
@@ -753,13 +604,13 @@ class ProgressiveGANTrainer(object):
             print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
 
         # Tmp Configuration
-        outConfig = {'scale': scale, 'iter': iter}
+        # outConfig = {'scale': scale, 'iter': iter}
 
-        with open(self.temp_config_path, 'w') as fp:
-            json.dump(outConfig, fp, indent=4)
+        # with open(self.temp_config_path, 'w') as fp:
+            # json.dump(outConfig, fp, indent=4)
         
-        if verbose:
-            print('Saved temp outconfig to: ',self.temp_config_path)
+        # if verbose:
+            # print('Saved temp outconfig to: ',self.temp_config_path)
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -788,32 +639,74 @@ class ProgressiveGANTrainer(object):
 
         # Load the temp configuration
         # Find latest scale file
-        scale = 0
-        for scale in range(self.modelConfig.n_scales-1,-1,-1):
-            print(scale)
-            path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
-            print(path)
-            if os.path.exists(path):
-                self.temp_config_path = path
-                break
+        # scale = 0
+        # for scale in range(self.modelConfig.n_scales-1,-1,-1):
+        #     print(scale)
+        #     path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+        #     print(path)
+        #     if os.path.exists(path):
+        #         self.temp_config_path = path
+        #         break
 
-        with open(self.temp_config_path,'rb') as infile:
-            tmpConfig = json.load(infile)
-        self.startScale = tmpConfig["scale"]
-        self.startIter = tmpConfig["iter"]
+        # with open(self.temp_config_path,'rb') as infile:
+        #     tmpConfig = json.load(infile)
+        # self.startScale = tmpConfig["scale"]
+        # self.startIter = tmpConfig["iter"]
 
         # Read the training configuration
-        with open(self.train_config_path,'rb') as infile:
-            trainConfig = json.load(infile)
-        self.readTrainConfig(trainConfig)
+        # with open(self.train_config_path,'rb') as infile:
+            # trainConfig = json.load(infile)
+        # self.readTrainConfig(trainConfig)
 
         # Re-initialize the model
-        self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
+        # self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
+
+        # Get resolution from latest checkpoint
+        self.start_resolution = tf.train.load_variable(self.checkpoint_dir, 'resolution')
+        self.initialise_model()
         
         # Load saved checkpoint
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+
+        self.overall_steps = self.checkpoint.step.eval()
+        self.start_epoch = self.checkpoint.epoch.eval()
+        
+        print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}')
+
+    @staticmethod
+    def calculate_batch_size(resolution):
+        if resolution in [4,8,16,32,64]:
+            return 16
+        elif resolution == 128:
+            return 8
+        elif resolution == 256:
+            return 4
+        elif resolution == 512:
+            return 3
+        else:
+            raise NotImplementedError(f'{resolution} is not implemented')
+    
+    @property
+    def alpha(self):
+        """
+        Get alpha value
+        """
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        """
+        Update the value of the merging factor alpha
+        Args:
+            - alpha (float): merging factor, must be in [0, 1]
+        """
+        if value < 0 or value > 1:
+            raise ValueError("alpha must be in [0,1]")
+
+        self.model.alpha = value
+        self._alpha = value
 
     def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
         """
@@ -830,104 +723,71 @@ class ProgressiveGANTrainer(object):
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
-        if self.log_dir is not None:
-            self.saveBaseConfig()
-
-        for scale in range(self.startScale, self.modelConfig.n_scales):
-            print(f'Scale {scale} for size {self.modelConfig.size_scales[scale]} training begins')
+        resolution = self.start_resolution
+        while resolution <= self.stop_resolution:
+            print(f'Size {resolution}x{resolution} training begins')
 
             # Define specific paths
-            self.temp_config_path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+            # self.temp_config_path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
+            self.checkpoint.resolution.assign(resolution)
+            self.resolution_batch_size = self.calculate_batch_size(resolution)
             
             # Get train dataset at the correct image scale
             train_dataset = get_image_dataset(self.datapath,
-                                            img_height=self.modelConfig.size_scales[scale],
-                                            img_width=self.modelConfig.size_scales[scale],
-                                            batch_size=self.modelConfig.miniBatchSize,
+                                            img_height=resolution,
+                                            img_width=resolution,
+                                            batch_size=self.resolution_batch_size,
                                             normalize=True)
             
             if verbose:
-                print(f'Dataset for size {self.modelConfig.size_scales[scale]} obtained')
+                print(f'Dataset for resolution {resolution}x{resolution} obtained')
+                print('Dataset Length: ', len(train_dataset))
 
-            self.step = 0
-            if self.startIter > 0:
-                self.step = self.startIter
-                self.overall_steps = self.startIter + np.sum([self.modelConfig.maxIterAtScale[i] for i in range(0, self.startScale)])
-                self.startIter = 0
+            switch_res_every_n_epoch = 40 #math.ceil(800000 / total_data_number)
+            training_steps = np.ceil(len(train_dataset) / self.batch_size)
+            # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
+            self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
+            self.alpha = min(1., (self.start_epoch - 1) % switch_res_every_n_epoch * training_steps * self.resolution_alpha_increment)
 
-            shiftAlpha = 0
-
-            # While the shiftAlpha variable is less than the jumps of alpha in that scale and the iteration which the shiftAlpha corresponds to in that scale is less than the shiftIter, add 1 to shiftAlpha
-            # Basically this tells us what is the level of alpha we should start at (the one right before the shiftIter)
-            while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < self.step:
-                shiftAlpha += 1
-
-            while self.step < self.modelConfig.maxIterAtScale[scale]:
-                
-                # Set the index to set alpha to to the current shiftAlpha
-                self.indexJumpAlpha = shiftAlpha
-                
-                status = self.train_epoch(train_dataset, scale, maxIter=self.modelConfig.maxIterAtScale[scale], verbose=verbose)
-
-                if not status:
-                    return False
-                
-                # Update shiftAlpha to the next step
-                while shiftAlpha < len(self.modelConfig.iterAlphaJump[scale]) and self.modelConfig.iterAlphaJump[scale][shiftAlpha] < self.step:
-                    shiftAlpha += 1
+            for epoch in range(self.start_epoch, self.epochs + 1):
+                self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
             # If final scale then don't add anymore layers
-            if scale == self.modelConfig.n_scales - 1:
+            if resolution == self.stop_resolution:
                 break
 
             # Add scale
-            self.model.addScale(self.modelConfig.depthScales[scale + 1])
+            self.model.double_resolution()
 
-        self.startScale = self.modelConfig.n_scales
-        self.startIter = self.modelConfig.maxIterAtScale[-1]
         return True
-
 
     def train_epoch(self,
                     dataset,
-                    scale,
-                    maxIter=-1,
-                    verbose=True
+                    resolution,
+                    epoch,
+                    verbose=False
                     ):
-        """
-        Train the model on one epoch.
-        Args:
-            - dbLoader (DataLoader): dataset on which the training will be made
-            - scale (int): scale at which is the training is performed
-            - shiftIter (int): shift to apply to the iteration index when
-                               looking for the next update of the alpha
-                               coefficient
-            - maxIter (int): if > 0, iteration at which the training should stop
-        Returns:
-            True if the training went smoothly
-            False if a diverging behavior was detected and the training had to
-            be stopped
-        """
 
         if verbose:
-            print('Dataset Length: ', len(dataset))
+            print('Start of epoch %d' % (epoch,))
+            print('Current alpha: %f' % (self.alpha,))
+            print('Current resolution: {} * {}'.format(resolution, resolution))
 
         start = time.time()
-        previous_step = self.step, self.overall_steps
 
-        for real_image_batch in dataset:
-            self.step += 1
-            self.overall_steps += 1
+        for step, (real_image_batch) in enumerate(dataset):
             self.checkpoint.step.assign_add(1)
+            self.overall_steps += 1
 
-            if real_image_batch.shape[0] < self.modelConfig.miniBatchSize:
-                raise ValueError('Image batch shape less than mini_batch_size')
-
-            # Additional updates inside a scale
-            real_image_batch = self.inScaleUpdate(self.step, scale, real_image_batch)
-            noise = tf.random.normal([real_image_batch.shape[0], self.modelConfig.latent_dim])
+            noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
+            self.discriminator_train_steps[resolution](real_image_batch, noise, verbose=verbose)
+            self.generator_train_steps[resolution](noise, verbose=verbose)
             
-            self.train_steps[scale](real_images=real_image_batch, noise=noise, verbose=verbose)
+            # update alpha
+            self.alpha = min(1., self.alpha + self.resolution_alpha_increment)
+
+            if real_image_batch.shape[0] < self.resolution_batch_size:
+                raise ValueError('Image batch shape less than resolution batch size')
 
             # Write logged losses
             if self.overall_steps % self.loss_iter_evaluation == 0:
@@ -940,11 +800,11 @@ class ProgressiveGANTrainer(object):
                     tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_wasserstein_loss_fake', self.metrics['discriminator_wasserstein_loss_fake'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.overall_steps)
-                    tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
+                    # tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
                     tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
 
                 # Save Images
-                predicted_image = self.model.netG(noise, training=False)
+                predicted_image = self.model.Generator(noise, training=False)
                 predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
                 with self.gen_summary_writer.as_default():
                     tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
@@ -954,85 +814,153 @@ class ProgressiveGANTrainer(object):
                 with self.dis_summary_writer.as_default():
                     tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.overall_steps)
 
+                self.generate_and_save_images(epoch, noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
-                self.save_check_point(scale, self.step, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+                self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
 
             # Reset Losses
             for k in self.metrics:
                 self.metrics[k].reset_states()
-            
-            if self.step == maxIter:
-                if verbose:
-                    print('Max iterations reached')
-                return True
 
-        print(f'Time from step {previous_step[0]}/{previous_step[1]} to {self.step}/{maxIter}, {self.overall_steps} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}')
+        self.checkpoint.epoch.assign_add(1)
+
+        print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}')
 
         if verbose:
             print('Completed')
 
         return True
-    
-    @tf.function
-    def train_step(self, real_images, noise, return_generated_images=False, verbose=False):
 
-        with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+    @tf.function
+    def discriminator_train_step(self, real_images, noise, verbose=False):
+        epsilon = tf.random.uniform(shape=[self.batch_size, 1, 1, 1], minval=0, maxval=1)
+
+        with tf.GradientTape(persistent=True) as d_tape:
+            with tf.GradientTape() as gp_tape:
+                generated_images = self.model.Generator(noise, training=True)
+                generated_images_mixed = epsilon * tf.dtypes.cast(real_images, tf.float32) + ((1 - epsilon) * generated_images)
+                fake_mixed_pred = self.model.Discriminator(generated_images_mixed, training=True)
+                
+            # Compute gradient penalty
+            grads = gp_tape.gradient(fake_mixed_pred, generated_images_mixed)
+            grad_norms = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
+            discriminator_gradient_penalty = tf.reduce_mean(tf.square(grad_norms - 1))
+            if verbose:
+                print('Obtained Wasserstein Gradient Penalty for Discriminator')
             
-            # 1. Real Output + Wasserstein Loss
-            real_predictions = self.model.netD(real_images, training=True)
-            discriminator_wloss_real = self.model.loss_criterion(real_predictions, True)
+            discriminator_wloss_real = tf.math.reduce_mean(self.model.Discriminator(generated_images, training=True))
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on REAL images')
-
-            # 2. Fake Output + Wasserstein Loss
-            generated_images = self.model.netG(noise, training=True)
-            fake_predictions = self.model.netD(generated_images, training=True)
-            discriminator_wloss_fake = self.model.loss_criterion(fake_predictions, False)
+            discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator(real_images, training=True))
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on FAKE images')
-            
-            generator_wloss_fake = self.model.loss_criterion(fake_predictions, True)
-            if verbose:
-                print('Obtained Wasserstein Loss for Generator on FAKE images')
-            
-            # 3. Wasserstein Gradient Penalty Loss
-            if self.modelConfig.lambdaGP > 0:
-                discriminator_gradient_penalty = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
-                if verbose:
-                    print('Obtained Wasserstein Gradient Penalty for Discriminator')
 
-            # 4. Epsilon Loss
-            if self.modelConfig.epsilonD > 0:
-                discriminator_episilon_loss = tf.math.reduce_mean(real_predictions[:,0]**2) + self.modelConfig.epsilonD
-                if verbose:
-                    print('Obtained Epsilon Loss for Discriminator')
-            # total_discriminator_loss = discriminator_loss(real_predictions, fake_predictions)
-            # total_generator_loss = generator_loss(fake_predictions)
-
-            total_generator_loss = generator_wloss_fake
-            total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss + discriminator_gradient_penalty
+            total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + self.config.lambdaGP*discriminator_gradient_penalty
 
             # Log losses
             self.metrics['discriminator_wasserstein_loss_real'](discriminator_wloss_real)
             self.metrics['discriminator_wasserstein_loss_fake'](discriminator_wloss_fake)
             self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
-            self.metrics['discriminator_epsilon_loss'](discriminator_episilon_loss)
             self.metrics['discriminator_loss'](total_discriminator_loss)
+
+        # Calculate the gradients for discriminator
+        gradients_of_discriminator = d_tape.gradient(total_discriminator_loss, self.model.Discriminator.trainable_variables)
+        if verbose:
+            print('Computed discriminator loss gradients')
+
+        self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.Discriminator.trainable_variables))
+        if verbose:
+            print('Applied discriminator loss gradients')
+
+    @tf.function
+    def generator_train_step(self, noise, verbose=False, return_generated_images=False):
+
+        with tf.GradientTape() as g_tape:
+            generated_images = self.model.Generator(noise, training=True)
+            fake_predictions = self.model.Discriminator(generated_images, training=True)
+
+            generator_wloss_fake = -tf.math.reduce_mean(fake_predictions)
+            if verbose:
+                print('Obtained Wasserstein Loss for Generator on FAKE images')
+
+            total_generator_loss = generator_wloss_fake
 
             self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
             self.metrics['generator_loss'](total_generator_loss)
-
-        gradients_of_generator = gen_tape.gradient(total_generator_loss, self.model.netG.trainable_variables)
-        gradients_of_discriminator = disc_tape.gradient(total_discriminator_loss, self.model.netD.trainable_variables)
         
+        # Calculate the gradients for discriminator
+        gradients_of_generator = g_tape.gradient(total_generator_loss, self.model.Generator.trainable_variables)
         if verbose:
-            print('Computed loss gradients')
-        self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.netG.trainable_variables))
-        self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.netD.trainable_variables))
-        
+            print('Computed generator loss gradients')
+        # Apply the gradients to the optimizer
+        self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.Generator.trainable_variables))
         if verbose:
-            print('Applied loss gradients')
+            print('Applied generator loss gradients')
 
         if return_generated_images:
             return generated_images
+
+    # @tf.function
+    # def train_step(self, real_images, noise, return_generated_images=False, verbose=False):
+
+    #     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            
+    #         # 1. Real Output + Wasserstein Loss
+    #         real_predictions = self.model.netD(real_images, training=True)
+    #         discriminator_wloss_real = self.model.loss_criterion(real_predictions, True)
+    #         if verbose:
+    #             print('Obtained Wasserstein Loss for Discriminator on REAL images')
+
+    #         # 2. Fake Output + Wasserstein Loss
+    #         generated_images = self.model.netG(noise, training=True)
+    #         fake_predictions = self.model.netD(generated_images, training=True)
+    #         discriminator_wloss_fake = self.model.loss_criterion(fake_predictions, False)
+    #         if verbose:
+    #             print('Obtained Wasserstein Loss for Discriminator on FAKE images')
+            
+    #         generator_wloss_fake = self.model.loss_criterion(fake_predictions, True)
+    #         if verbose:
+    #             print('Obtained Wasserstein Loss for Generator on FAKE images')
+            
+    #         # 3. Wasserstein Gradient Penalty Loss
+    #         if self.modelConfig.lambdaGP > 0:
+    #             discriminator_gradient_penalty = WGANGPGradientPenalty(real_images, generated_images, self.model.netD, self.modelConfig.lambdaGP)
+    #             if verbose:
+    #                 print('Obtained Wasserstein Gradient Penalty for Discriminator')
+
+    #         # 4. Epsilon Loss
+    #         if self.modelConfig.epsilonD > 0:
+    #             discriminator_episilon_loss = tf.math.reduce_mean(real_predictions[:,0]**2) + self.modelConfig.epsilonD
+    #             if verbose:
+    #                 print('Obtained Epsilon Loss for Discriminator')
+    #         # total_discriminator_loss = discriminator_loss(real_predictions, fake_predictions)
+    #         # total_generator_loss = generator_loss(fake_predictions)
+
+    #         total_generator_loss = generator_wloss_fake
+    #         total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + discriminator_episilon_loss + discriminator_gradient_penalty
+
+    #         # Log losses
+    #         self.metrics['discriminator_wasserstein_loss_real'](discriminator_wloss_real)
+    #         self.metrics['discriminator_wasserstein_loss_fake'](discriminator_wloss_fake)
+    #         self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
+    #         self.metrics['discriminator_epsilon_loss'](discriminator_episilon_loss)
+    #         self.metrics['discriminator_loss'](total_discriminator_loss)
+
+    #         self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
+    #         self.metrics['generator_loss'](total_generator_loss)
+
+    #     gradients_of_generator = gen_tape.gradient(total_generator_loss, self.model.netG.trainable_variables)
+    #     gradients_of_discriminator = disc_tape.gradient(total_discriminator_loss, self.model.netD.trainable_variables)
+        
+    #     if verbose:
+    #         print('Computed loss gradients')
+    #     self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.netG.trainable_variables))
+    #     self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.netD.trainable_variables))
+        
+    #     if verbose:
+    #         print('Applied loss gradients')
+
+    #     if return_generated_images:
+    #         return generated_images

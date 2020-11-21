@@ -7,6 +7,7 @@ import datetime as dt
 import argparse
 
 from PIL import Image
+from easydict import EasyDict as edict
 from utils.train import ProgressiveGANTrainer
 
 import matplotlib.pyplot as plt
@@ -26,7 +27,6 @@ def get_options():
     parser.add_argument('--beta1', default=0., type=float, help='Adam optimizer beta1.')
     parser.add_argument('--beta2', default=0.99, type=float, help='Adam optimizer beta2.')
 
-    parser.add_argument('--tf1', action='store_true', help='Run the TF1 version of PGGAN')
     parser.add_argument('--restore', action='store_true', help='Restore from last checkpoint')
     parser.add_argument('--restore_gdrive', action='store_true', help='Restore from last checkpoint in gdrive')
 
@@ -47,20 +47,26 @@ def get_options():
 if __name__ == '__main__':
     opt = get_options()
 
-    data_directory = os.path.join(os.getcwd(),'data')
-    image_path_pattern = os.path.join(data_directory,'google_pavilion','*.jpeg')
+    config = edict()
+    config.datapath = os.path.join(os.getcwd(),'data','google_pavilion','*.jpeg')
+    config.latent_dim = 512
+    config.resolution = 4
+    config.stop_resolution = 8
+    config.start_epoch = 1
+    config.epochs = 320
+    config.lambdaGP = 10
+    config.leaky_relu_leak = 0.2
+    config.kernel_initializer = 'he_normal'
+    config.output_activation = tf.keras.activations.tanh
 
     generator_optimizer = keras.optimizers.Adam(opt.glr ,beta_1=opt.beta1, beta_2=opt.beta2)
     discriminator_optimizer = keras.optimizers.Adam(opt.dlr ,beta_1=opt.beta1, beta_2=opt.beta2)
 
-    pggan_trainer = ProgressiveGANTrainer(datapath=image_path_pattern, 
+    pggan_trainer = ProgressiveGANTrainer(config=config,
                                         discriminator_optimizer=discriminator_optimizer,
                                         generator_optimizer=generator_optimizer,
                                         save_iter=opt.save_iter,
-                                        loss_iter_evaluation=opt.loss_iter_evaluation
-    )
-
-    print(pggan_trainer.modelConfig)
+                                        loss_iter_evaluation=opt.loss_iter_evaluation)
 
     try:
         from google.colab import drive

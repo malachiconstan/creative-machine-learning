@@ -2,7 +2,9 @@ import tensorflow as tf
 import tensorflow.keras.layers as layers
 import tensorflow_addons as tfa
 
-from utils.custom_layers import EqualizeLearningRate, PGUpSampleBlock, PGDowmSampleBlock, GeneratorInputBlock, DiscriminatorOutputBlock #EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
+from easydict import EasyDict as edict
+
+from utils.custom_layers import EqualizeLearningRate, PGUpSampleBlock, PGDownSampleBlock, GeneratorInputBlock, DiscriminatorOutputBlock #EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
 from utils.config import BaseConfig
 from utils.losses import wgan_loss
 
@@ -385,10 +387,10 @@ class PGGenerator(tf.keras.Model):
         r_X = self.to_rgb[self.resolution//2](upsampled_X)
 
         # Left Branch
-        l_X = (1-self.alpha)*l_X
+        l_X = self.alpha*l_X
 
         # Right branch
-        r_X = self.alpha*r_X
+        r_X = (1-self.alpha)*r_X
 
         return l_X + r_X
 
@@ -449,7 +451,7 @@ class PGDiscriminator(tf.keras.Model):
             - depthNewScale (int): depth of each conv layer of the new scale
         """
         self.resolution *= 2
-        self.downsample_blocks[self.resolution] = PGDowmSampleBlock(output_filters1=512,
+        self.downsample_blocks[self.resolution] = PGDownSampleBlock(output_filters1=512,
                                                                 output_filters2=512,
                                                                 kernel_size=3,
                                                                 strides=1,
@@ -516,6 +518,7 @@ class PGDiscriminator(tf.keras.Model):
         if self.resolution == 4:
             X = self.from_rgb[4](input)
             X = self.conv2d_up_channel(X)
+            X = self.output_block(X)
             return X
 
         # Left branch
@@ -539,110 +542,77 @@ class PGDiscriminator(tf.keras.Model):
 
 class ProgressiveGAN(object):
     def __init__(self,
+                resolution=4,
                 latent_dim=512,
-                level_0_channels=512,
-                init_bias_zero=True,
                 leaky_relu_leak=0.2,
-                per_channel_normalisation=True,
-                mini_batch_sd=False,
-                equalizedlR=True,
-                output_dim=3,
-                GDPP=False,
-                lambdaGP=0.,
-                depthOtherScales = [],
+                kernel_initializer='he_normal',
+                output_activation = tf.keras.activations.tanh,
                 **kwargs):
     
         if not 'config' in vars(self):
-            self.config = BaseConfig()
+            self.config = edict()
 
-        self.config.level_0_channels = level_0_channels
-        self.config.init_bias_zero = init_bias_zero
-        self.config.leaky_relu_leak = leaky_relu_leak
-        self.config.depthOtherScales = depthOtherScales
-        self.config.per_channel_normalisation = per_channel_normalisation
-        self.config.alpha = 0
-        self.config.mini_batch_sd = mini_batch_sd
-        self.config.equalizedlR = equalizedlR
-        
+        # self.config.level_0_channels = level_0_channels
+        # self.config.init_bias_zero = init_bias_zero
+        self.config.resolution = resolution
         self.config.latent_dim = latent_dim
-        self.config.output_dim = output_dim
+        self.config.leaky_relu_leak = leaky_relu_leak
+        self.config.kernel_initializer = kernel_initializer
+        self.config.output_activation = output_activation
+        # self.config.depthOtherScales = depthOtherScales
+        # self.config.per_channel_normalisation = per_channel_normalisation
+        # self.config.alpha = 0
+        # self.config.mini_batch_sd = mini_batch_sd
+        # self.config.equalizedlR = equalizedlR
+        
+        
+        # self.config.output_dim = output_dim
 
-        self.config.GDPP = GDPP
+        # self.config.GDPP = GDPP
 
         # WGAN-GP
-        self.loss_criterion = wgan_loss
-        self.config.lambdaGP = lambdaGP
+        # self.loss_criterion = wgan_loss
+        # self.config.lambdaGP = lambdaGP
 
-        self.netD = self.getNetD()
-        self.netG = self.getNetG()
+        self.Discriminator = PGDiscriminator(self.config.resolution,
+                            self.config.leaky_relu_leak,
+                            self.config.kernel_initializer)
+        self.Generator = PGGenerator(self.config.resolution,
+                            self.config.latent_dim,
+                            self.config.leaky_relu_leak,
+                            self.config.kernel_initializer,
+                            self.config.output_activation)
 
-    def infer(self, input, toCPU=True):
+    @property
+    def alpha(self):
         """
-        Generate some data given the input latent vector.
+        Get alpha value
+        """
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, value):
+        """
+        Update the value of the merging factor alpha
         Args:
-            input (torch.tensor): input latent vector
+            - alpha (float): merging factor, must be in [0, 1]
         """
-        if toCPU:
-            return tf.stop_gradient(self.netG(input)).cpu()
-        else:
-            return tf.stop_gradient(self.netG(input))
+        if value < 0 or value > 1:
+            raise ValueError("alpha must be in [0,1]")
+        
+        print("Changing alpha to %.3f" % value)
+        self.Discriminator.alpha = value
+        self.Generator.alpha = value
+        self._alpha = value
+        
+    def get_resolution(self):
+        return self.config.resolution
 
-    def getNetG(self):
-        gnet = PGGenerator(self.config.latent_dim,
-                        self.config.level_0_channels,
-                        init_bias_zero=self.config.init_bias_zero,
-                        leaky_relu_leak=self.config.leaky_relu_leak,
-                        normalization=self.config.per_channel_normalisation,
-                        activation=None,
-                        output_dim=self.config.output_dim,
-                        equalizedlR=self.config.equalizedlR)
+    def double_resolution(self):
+        self.Generator.double_resolution()
+        self.Discriminator.double_resolution()
+        print('Resolution Doubled')
 
-        # Add scales if necessary
-        for depth in self.config.depthOtherScales:
-            gnet.addScale(depth)
-
-        # If new scales are added, give the generator a blending layer
-        if self.config.depthOtherScales:
-            gnet.alpha = self.config.alpha
-
-        return gnet
-
-    def getNetD(self):
-        dnet = PGDiscriminator(self.config.level_0_channels,
-                            init_bias_zero=self.config.init_bias_zero,
-                            leaky_relu_leak=self.config.leaky_relu_leak,
-                            decision_layer_size=1,
-                            mini_batch_sd=self.config.mini_batch_sd,
-                            input_dim=self.config.output_dim,
-                            equalizedlR=self.config.equalizedlR)
-
-        # Add scales if necessary
-        for depth in self.config.depthOtherScales:
-            dnet.addScale(depth)
-
-        # If new scales are added, give the discriminator a blending layer
-        if self.config.depthOtherScales:
-            dnet.alpha = self.config.alpha
-
-        return dnet
-
-    def updateAlpha(self, newAlpha):
-        """
-        Update the blending factor alpha.
-        Args:
-            - alpha (float): blending factor (in [0,1]). 0 means only the
-                             highest resolution in considered (no blend), 1
-                             means the highest resolution is fully discarded.
-        """
-        print("Changing alpha to %.3f" % newAlpha) 
-
-        self.getNetG().alpha = newAlpha
-        self.getNetD().alpha = newAlpha
-
-        self.config.alpha = newAlpha
-
-    def getSize(self):
-        """
-        Get output image size (W, H)
-        """
-        return self.getNetG().getOutputSize()
+    def __call__(self, z):
+        assert z.shape[1] == self.config.latent_dim, f'Latent dimension must be same as {self.config.latent_dim}'
+        return self.Generator(z)
