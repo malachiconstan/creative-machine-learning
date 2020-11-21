@@ -703,8 +703,8 @@ class ProgressiveGANTrainer(object):
         """
         if value < 0 or value > 1:
             raise ValueError("alpha must be in [0,1]")
-
-        if value != self.alpha:
+        
+        if value != getattr(self, 'alpha', 0.0):
             self.model.alpha = value
             self._alpha = value
 
