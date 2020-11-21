@@ -704,9 +704,13 @@ class ProgressiveGANTrainer(object):
         if value < 0 or value > 1:
             raise ValueError("alpha must be in [0,1]")
         
-        # if value != getattr(self, 'alpha', 0.0):
-        self.model.alpha = value
-        self._alpha = value
+        if hasattr(self, 'alpha'):
+            if self.alpha != value:
+                self.model.alpha = value
+                self._alpha = value
+        else:
+            self.model.alpha = value
+            self._alpha = value
 
     def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
         """
@@ -748,7 +752,7 @@ class ProgressiveGANTrainer(object):
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
             self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
 
-            print(self.start_epoch, self.epochs)
+            assert self.start_epoch < self.epochs, 'Start epochs should be less than epochs'
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
