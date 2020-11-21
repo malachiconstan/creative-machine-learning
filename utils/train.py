@@ -742,11 +742,10 @@ class ProgressiveGANTrainer(object):
                 print(f'Dataset for resolution {resolution}x{resolution} obtained')
                 print('Dataset Length: ', len(train_dataset))
 
-            switch_res_every_n_epoch = 40 #math.ceil(800000 / total_data_number)
             training_steps = np.ceil(len(train_dataset) / self.batch_size)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
-            self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
-            self.alpha = min(1., (self.start_epoch - 1) % switch_res_every_n_epoch * training_steps * self.resolution_alpha_increment)
+            self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
+            self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
 
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
@@ -757,6 +756,7 @@ class ProgressiveGANTrainer(object):
 
             # Add scale
             self.model.double_resolution()
+            resolution *= 2
 
         return True
 
