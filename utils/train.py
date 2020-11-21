@@ -704,9 +704,9 @@ class ProgressiveGANTrainer(object):
         if value < 0 or value > 1:
             raise ValueError("alpha must be in [0,1]")
         
-        if value != getattr(self, 'alpha', 0.0):
-            self.model.alpha = value
-            self._alpha = value
+        # if value != getattr(self, 'alpha', 0.0):
+        self.model.alpha = value
+        self._alpha = value
 
     def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
         """
