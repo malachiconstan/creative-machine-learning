@@ -615,7 +615,7 @@ class ProgressiveGANTrainer(object):
         
         # After transition mandatory save and load
         self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
-        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -657,7 +657,7 @@ class ProgressiveGANTrainer(object):
             self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5'), by_name=False)
             print("generator loaded")
         if os.path.isfile(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5')):
-            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5'), by_name=False)
+            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_discriminator.h5'), by_name=False)
             print("discriminator loaded")
         
         print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
