@@ -574,10 +574,12 @@ class ProgressiveGANTrainer(object):
             res *= 2
         print('Created training steps')
 
-    def initialise_model(self):
-        print(f'Initialising model with resolution {self.start_resolution}')
+    def initialise_model(self, resolution=None):
+        if resolution is None:
+            resolution = self.start_resolution
+        print(f'Initialising model with resolution {resolution}')
         self.model = ProgressiveGAN(
-            self.start_resolution,
+            self.resolution,
             self.config.latent_dim,
             self.config.leaky_relu_leak,
             self.config.kernel_initializer,
@@ -735,8 +737,8 @@ class ProgressiveGANTrainer(object):
             self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
             self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
             # Add scale
-            self.model.double_resolution()
             resolution *= 2
+            self.initialise_model(resolution)
             # self.load_saved_training(load_from_g_drive=load_from_g_drive)
                     
             if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
