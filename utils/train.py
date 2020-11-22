@@ -747,7 +747,7 @@ class ProgressiveGANTrainer(object):
 
             previous_resolution = int(resolution//2)
             if os.path.isfile(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')):
-                self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')), by_name=False)
+                self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5'), by_name=False)
                 print("generator loaded")
             if os.path.isfile(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')):
                 self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5'), by_name=False)
