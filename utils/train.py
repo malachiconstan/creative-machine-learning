@@ -579,7 +579,7 @@ class ProgressiveGANTrainer(object):
             resolution = self.start_resolution
         print(f'Initialising model with resolution {resolution}')
         self.model = ProgressiveGAN(
-            self.resolution,
+            resolution,
             self.config.latent_dim,
             self.config.leaky_relu_leak,
             self.config.kernel_initializer,
