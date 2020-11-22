@@ -565,14 +565,14 @@ class ProgressiveGANTrainer(object):
         self.generate_and_save_images(0, sample_noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
         # Create many tf functions
-        res = self.start_resolution
-        self.discriminator_train_steps = dict()
-        self.generator_train_steps = dict()
-        while res <= self.stop_resolution:
-            self.discriminator_train_steps[str(res)] = deepcopy(self.discriminator_train_step)
-            self.generator_train_steps[str(res)] = deepcopy(self.generator_train_step)
-            res *= 2
-        print('Created training steps')
+        # res = self.start_resolution
+        # self.discriminator_train_steps = dict()
+        # self.generator_train_steps = dict()
+        # while res <= self.stop_resolution:
+        #     self.discriminator_train_steps[str(res)] = deepcopy(self.discriminator_train_step)
+        #     self.generator_train_steps[str(res)] = deepcopy(self.generator_train_step)
+        #     res *= 2
+        # print('Created training steps')
 
     def initialise_model(self, resolution=None):
         if resolution is None:
