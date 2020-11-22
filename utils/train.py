@@ -584,6 +584,10 @@ class ProgressiveGANTrainer(object):
             self.config.output_activation
         )
 
+        # Initialise Model Variables
+        self.model.Generator.build((1,self.latent_dim))
+        self.model.Discriminator.build((1,self.start_resolution, self.start_resolution, 3))
+
     def generate_and_save_images(self, epoch, test_input, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
         # Test input is a list include noise and label
         predictions = self.model(test_input)
@@ -618,8 +622,8 @@ class ProgressiveGANTrainer(object):
         # if verbose:
             # print('Saved temp outconfig to: ',self.temp_config_path)
 
-        self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
-        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
+        self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(int(self.checkpoint.resolution), int(self.checkpoint.resolution))))
+        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(int(self.checkpoint.resolution), int(self.checkpoint.resolution))))
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -768,13 +772,9 @@ class ProgressiveGANTrainer(object):
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
             self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
 
-            assert self.start_epoch < self.epochs, 'Start epochs should be less than epochs'
+            assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
-
-            # After transition mandatory save and load
-            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-            self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
             # If final scale then don't add anymore layers
             if resolution == self.stop_resolution:
@@ -783,6 +783,11 @@ class ProgressiveGANTrainer(object):
             # Add scale
             self.model.double_resolution()
             resolution *= 2
+
+            # After transition mandatory save and load
+            self.checkpoint.resolution.assign(resolution)
+            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
         return True
 

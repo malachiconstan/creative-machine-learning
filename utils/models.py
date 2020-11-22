@@ -611,7 +611,10 @@ class ProgressiveGAN(object):
     def double_resolution(self):
         self.Generator.double_resolution()
         self.Discriminator.double_resolution()
-        print('Resolution Doubled')
+        self.config.resolution *= 2
+        self.Generator.build((1,self.config.latent_dim))
+        self.Discriminator.build((1,self.config.resolution,self.config.resolution,3))
+        print('Resolution Doubled. Model Built')
 
     def __call__(self, z):
         assert z.shape[1] == self.config.latent_dim, f'Latent dimension must be same as {self.config.latent_dim}'
