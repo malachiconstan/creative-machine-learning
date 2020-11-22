@@ -500,6 +500,7 @@ class ProgressiveGANTrainer(object):
         self.gen_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'gen')
         self.dis_log_dir = os.path.join(self.log_dir,'gradient_tape',current_time,'dis')
         self.checkpoint_dir = os.path.join(os.getcwd(),'pggan_checkpoints')
+        self.model_save_dir = os.path.join(os.getcwd(),'pggan_weights')
         self.train_config_path = os.path.join(self.checkpoint_dir, f'{model_label}_' + "_train_config.json")
 
         if not os.path.exists(self.log_dir):
@@ -510,6 +511,9 @@ class ProgressiveGANTrainer(object):
 
         if not os.path.exists(self.img_dir):
             os.makedirs(self.img_dir)
+        
+        if not os.path.exists(self.model_save_dir):
+            os.makedirs(self.model_save_dir)
 
         self.config = config
 
@@ -673,6 +677,13 @@ class ProgressiveGANTrainer(object):
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+
+        if os.path.isfile(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(int(self.start_resolution), int(self.start_resolution)))):
+            self.model.Generator.load_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(int(self.start_resolution), int(self.start_resolution))), by_name=False)
+            print("generator loaded")
+        if os.path.isfile(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(int(self.start_resolution), int(self.start_resolution)))):
+            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(int(self.start_resolution), int(self.start_resolution))), by_name=False)
+            print("discriminator loaded")
         
         print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
 
@@ -835,6 +846,9 @@ class ProgressiveGANTrainer(object):
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
                 self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+
+                self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
+                self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
 
             # Reset Losses
             for k in self.metrics:
