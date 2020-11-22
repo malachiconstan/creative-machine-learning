@@ -586,6 +586,9 @@ class ProgressiveGANTrainer(object):
             self.config.output_activation
         )
 
+        z = tf.random.uniform((1, self.latent_dim))
+        result = self.model.Discriminator(self.model.Generator(z))
+
     def generate_and_save_images(self, epoch, test_input, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
         # Test input is a list include noise and label
         predictions = self.model(test_input)
