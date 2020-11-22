@@ -584,10 +584,6 @@ class ProgressiveGANTrainer(object):
             self.config.output_activation
         )
 
-        # Initialise Model Variables
-        self.model.Generator.build((1,self.latent_dim))
-        self.model.Discriminator.build((1,self.start_resolution, self.start_resolution, 3))
-
     def generate_and_save_images(self, epoch, test_input, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
         # Test input is a list include noise and label
         predictions = self.model(test_input)
@@ -614,8 +610,6 @@ class ProgressiveGANTrainer(object):
             print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
         
         # After transition mandatory save and load
-        self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
-        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -652,13 +646,6 @@ class ProgressiveGANTrainer(object):
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
-        
-        if os.path.isfile(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5')):
-            self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5'), by_name=False)
-            print("generator loaded")
-        if os.path.isfile(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5')):
-            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_discriminator.h5'), by_name=False)
-            print("discriminator loaded")
         
         print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
 
@@ -744,16 +731,26 @@ class ProgressiveGANTrainer(object):
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
-            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-            self.load_saved_training(load_from_g_drive=load_from_g_drive)
+            # self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+            self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
+            # Add scale
+            self.model.double_resolution()
+            resolution *= 2
+            # self.load_saved_training(load_from_g_drive=load_from_g_drive)
+                    
+            if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
+                self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5'), by_name=True)
+                print("generator loaded")
+            if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
+                self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_discriminator.h5'), by_name=True)
+                print("discriminator loaded")
 
             # If final scale then don't add anymore layers
             if resolution == self.stop_resolution:
                 break
 
-            # Add scale
-            self.model.double_resolution()
-            resolution *= 2
+            
 
         return True
 
