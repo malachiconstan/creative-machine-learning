@@ -613,18 +613,6 @@ class ProgressiveGANTrainer(object):
             print('Checkpoint step at: ',int(self.checkpoint.step))
             print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
 
-        # Tmp Configuration
-        # outConfig = {'scale': scale, 'iter': iter}
-
-        # with open(self.temp_config_path, 'w') as fp:
-            # json.dump(outConfig, fp, indent=4)
-        
-        # if verbose:
-            # print('Saved temp outconfig to: ',self.temp_config_path)
-
-        self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(int(self.checkpoint.resolution), int(self.checkpoint.resolution))))
-        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(int(self.checkpoint.resolution), int(self.checkpoint.resolution))))
-
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
 
@@ -650,30 +638,6 @@ class ProgressiveGANTrainer(object):
             extract_data_g_drive('CML/checkpoints.zip', mounted=True, extracting_checkpoints=True)
             print('Extracted checkpoints from colab')
 
-        # Load the temp configuration
-        # Find latest scale file
-        # scale = 0
-        # for scale in range(self.modelConfig.n_scales-1,-1,-1):
-        #     print(scale)
-        #     path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
-        #     print(path)
-        #     if os.path.exists(path):
-        #         self.temp_config_path = path
-        #         break
-
-        # with open(self.temp_config_path,'rb') as infile:
-        #     tmpConfig = json.load(infile)
-        # self.startScale = tmpConfig["scale"]
-        # self.startIter = tmpConfig["iter"]
-
-        # Read the training configuration
-        # with open(self.train_config_path,'rb') as infile:
-            # trainConfig = json.load(infile)
-        # self.readTrainConfig(trainConfig)
-
-        # Re-initialize the model
-        # self.initModel(depthOtherScales = [self.modelConfig.depthScales[i] for i in range(0, self.startScale)])
-
         # Get resolution from latest checkpoint
         self.start_resolution = tf.train.load_variable(self.checkpoint_dir, 'resolution/.ATTRIBUTES/VARIABLE_VALUE')
         self.overall_steps = tf.train.load_variable(self.checkpoint_dir, 'step/.ATTRIBUTES/VARIABLE_VALUE')
@@ -684,13 +648,6 @@ class ProgressiveGANTrainer(object):
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
-
-        if os.path.isfile(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(int(self.start_resolution), int(self.start_resolution)))):
-            self.model.Generator.load_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(int(self.start_resolution), int(self.start_resolution))), by_name=False)
-            print("generator loaded")
-        if os.path.isfile(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(int(self.start_resolution), int(self.start_resolution)))):
-            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(int(self.start_resolution), int(self.start_resolution))), by_name=False)
-            print("discriminator loaded")
         
         print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
 
@@ -780,13 +737,22 @@ class ProgressiveGANTrainer(object):
             if resolution == self.stop_resolution:
                 break
 
+            # After transition mandatory save and load
+            self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+            self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+
             # Add scale
             self.model.double_resolution()
             resolution *= 2
 
-            # After transition mandatory save and load
-            self.checkpoint.resolution.assign(resolution)
-            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            previous_resolution = int(resolution//2)
+            if os.path.isfile(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')):
+                self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')), by_name=False)
+                print("generator loaded")
+            if os.path.isfile(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')):
+                self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5'), by_name=False)
+                print("discriminator loaded")
+            
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
         return True
