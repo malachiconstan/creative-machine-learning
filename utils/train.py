@@ -550,6 +550,7 @@ class ProgressiveGANTrainer(object):
             # discriminator_epsilon_loss = tf.keras.metrics.Mean('discriminator_epsilon_loss', dtype=tf.float32),
             discriminator_loss = tf.keras.metrics.Mean('discriminator_loss', dtype=tf.float32),
             generator_loss = tf.keras.metrics.Mean('generator_loss', dtype=tf.float32),
+            alpha = tf.keras.metrics.Mean('alpha', dtype=tf.float32)
         )
 
         self.gen_summary_writer = tf.summary.create_file_writer(self.gen_log_dir)
@@ -564,8 +565,8 @@ class ProgressiveGANTrainer(object):
         self.discriminator_train_steps = dict()
         self.generator_train_steps = dict()
         while res <= self.stop_resolution:
-            self.discriminator_train_steps[str(res)] = self.discriminator_train_step
-            self.generator_train_steps[str(res)] = self.generator_train_step
+            self.discriminator_train_steps[str(res)] = deepcopy(self.discriminator_train_step)
+            self.generator_train_steps[str(res)] = deepcopy(self.generator_train_step)
             res *= 2
         print('Created training steps')
 
@@ -801,10 +802,14 @@ class ProgressiveGANTrainer(object):
 
             # Write logged losses
             if self.overall_steps % self.loss_iter_evaluation == 0:
+                
+                # Log alpha
+                self.metrics['alpha'](self.alpha)
 
                 with self.gen_summary_writer.as_default():
                     tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
                     tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('alpha', self.metrics['alpha'].result(), step=self.overall_steps)
 
                 with self.dis_summary_writer.as_default():
                     tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
