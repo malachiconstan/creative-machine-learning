@@ -600,7 +600,7 @@ class ProgressiveGANTrainer(object):
             plt.savefig(os.path.join(self.img_dir, '{}x{}_image_at_epoch_{:04d}.png'.format(predictions.shape[1], predictions.shape[2], epoch)))
         plt.close()
 
-    def save_check_point(self, scale, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
+    def save_check_point(self, resolution, verbose=True, save_to_gdrive=True, g_drive_path = '/content/drive/My Drive/CML'):
         """
         Save a checkpoint at the given directory. Please not that the basic
         configuration won't be saved.
@@ -612,6 +612,10 @@ class ProgressiveGANTrainer(object):
         if verbose:
             print('Checkpoint step at: ',int(self.checkpoint.step))
             print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
+        
+        # After transition mandatory save and load
+        self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -648,6 +652,13 @@ class ProgressiveGANTrainer(object):
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+        
+        if os.path.isfile(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5')):
+            self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5'), by_name=False)
+            print("generator loaded")
+        if os.path.isfile(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5')):
+            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{self.start_resolution}x{self.start_resolution}_generator.h5'), by_name=False)
+            print("discriminator loaded")
         
         print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
 
@@ -733,27 +744,16 @@ class ProgressiveGANTrainer(object):
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
+            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
+
             # If final scale then don't add anymore layers
             if resolution == self.stop_resolution:
                 break
 
-            # After transition mandatory save and load
-            self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
-            self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
-
             # Add scale
             self.model.double_resolution()
             resolution *= 2
-
-            previous_resolution = int(resolution//2)
-            if os.path.isfile(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')):
-                self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5'), by_name=False)
-                print("generator loaded")
-            if os.path.isfile(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5')):
-                self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{previous_resolution}x{previous_resolution}_generator.h5'), by_name=False)
-                print("discriminator loaded")
-            
-            self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
         return True
 
