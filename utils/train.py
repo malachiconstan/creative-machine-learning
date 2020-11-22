@@ -737,8 +737,10 @@ class ProgressiveGANTrainer(object):
             # self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
             # self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
             # Add scale
+            if resolution != self.stop_resolution:
+                self.model.double_resolution()
+
             resolution *= 2
-            self.model.double_resolution()
             # self.initialise_model(resolution)
             # self.load_saved_training(load_from_g_drive=load_from_g_drive)
                     
@@ -748,12 +750,6 @@ class ProgressiveGANTrainer(object):
             # if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
             #     self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_discriminator.h5'), by_name=True)
             #     print("discriminator loaded")
-
-            # If final scale then don't add anymore layers
-            if resolution == self.stop_resolution:
-                break
-
-            
 
         return True
 
