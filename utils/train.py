@@ -586,9 +586,6 @@ class ProgressiveGANTrainer(object):
             self.config.output_activation
         )
 
-        z = tf.random.uniform((1, self.latent_dim))
-        result = self.model.Discriminator(self.model.Generator(z))
-
     def generate_and_save_images(self, epoch, test_input, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
         # Test input is a list include noise and label
         predictions = self.model(test_input)
@@ -737,19 +734,20 @@ class ProgressiveGANTrainer(object):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
             # self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-            self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
-            self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
+            # self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+            # self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
             # Add scale
             resolution *= 2
-            self.initialise_model(resolution)
+            self.model.double_resolution()
+            # self.initialise_model(resolution)
             # self.load_saved_training(load_from_g_drive=load_from_g_drive)
                     
-            if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
-                self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5'), by_name=True)
-                print("generator loaded")
-            if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
-                self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_discriminator.h5'), by_name=True)
-                print("discriminator loaded")
+            # if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
+            #     self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5'), by_name=True)
+            #     print("generator loaded")
+            # if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
+            #     self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_discriminator.h5'), by_name=True)
+            #     print("discriminator loaded")
 
             # If final scale then don't add anymore layers
             if resolution == self.stop_resolution:
@@ -778,11 +776,11 @@ class ProgressiveGANTrainer(object):
             self.overall_steps += 1
 
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
-            self.generator_train_steps[str(resolution)](noise, verbose=verbose)
+            # self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
+            # self.generator_train_steps[str(resolution)](noise, verbose=verbose)
 
-            # self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
-            # self.generator_train_step(noise, verbose=verbose)
+            self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
+            self.generator_train_step(noise, verbose=verbose)
             
             # update alpha
             if resolution > 4:
@@ -840,7 +838,7 @@ class ProgressiveGANTrainer(object):
 
         return True
 
-    @tf.function
+    # @tf.function
     def discriminator_train_step(self, real_images, noise, verbose=False):
         epsilon = tf.random.uniform(shape=[self.batch_size, 1, 1, 1], minval=0, maxval=1)
 
@@ -881,7 +879,7 @@ class ProgressiveGANTrainer(object):
         if verbose:
             print('Applied discriminator loss gradients')
 
-    @tf.function
+    # @tf.function
     def generator_train_step(self, noise, verbose=False, return_generated_images=False):
 
         with tf.GradientTape() as g_tape:

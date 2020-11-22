@@ -610,16 +610,8 @@ class ProgressiveGAN(object):
 
     def double_resolution(self):
         self.config.resolution *= 2
-        # self.Discriminator.double_resolution()
-        # self.Generator.double_resolution()
-        self.Discriminator = PGDiscriminator(self.config.resolution,
-                            self.config.leaky_relu_leak,
-                            self.config.kernel_initializer)
-        self.Generator = PGGenerator(self.config.resolution,
-                            self.config.latent_dim,
-                            self.config.leaky_relu_leak,
-                            self.config.kernel_initializer,
-                            self.config.output_activation)
+        self.Discriminator.double_resolution()
+        self.Generator.double_resolution()
 
         print('Resolution Doubled. Model Built')
 
