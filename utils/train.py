@@ -618,6 +618,9 @@ class ProgressiveGANTrainer(object):
         # if verbose:
             # print('Saved temp outconfig to: ',self.temp_config_path)
 
+        self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
+        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
+
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
 
@@ -769,6 +772,10 @@ class ProgressiveGANTrainer(object):
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
+            # After transition mandatory save and load
+            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
+
             # If final scale then don't add anymore layers
             if resolution == self.stop_resolution:
                 break
@@ -846,9 +853,6 @@ class ProgressiveGANTrainer(object):
             # Save Checkpoint
             if self.overall_steps % self.save_iter == 0:
                 self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-
-                self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
-                self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
 
             # Reset Losses
             for k in self.metrics:
