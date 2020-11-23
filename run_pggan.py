@@ -18,8 +18,8 @@ def get_options():
     parser = argparse.ArgumentParser()
 
     # General options. Change all other options in pggan_config.py
-    parser.add_argument('--save_iter', default=20, type=int, help='Number of epochs before saving')
-    parser.add_argument('--loss_iter_evaluation', default=20, type=int, help='Number of epochs before saving an image')
+    parser.add_argument('--save_iter', default=5000, type=int, help='Number of epochs before saving')
+    parser.add_argument('--loss_iter_evaluation', default=200, type=int, help='Number of epochs before saving an image')
 
     # Optimizer options
     parser.add_argument('--glr', default=1e-3, type=float, help='Learning rate for generator')

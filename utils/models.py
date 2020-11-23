@@ -4,7 +4,8 @@ import tensorflow_addons as tfa
 
 from easydict import EasyDict as edict
 
-from utils.custom_layers import EqualizeLearningRate, PGUpSampleBlock, PGDownSampleBlock, GeneratorInputBlock, DiscriminatorOutputBlock #EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
+from utils.custom_layers import EqualizeLearningRate, PGUpSampleBlock, PGDownSampleBlock, GeneratorInputBlock, DiscriminatorOutputBlock
+from utils.custom_layers import pg_upsample_block, pg_downsample_block, generator_input_block, discriminator_output_block #EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
 from utils.config import BaseConfig
 from utils.losses import wgan_loss
 
@@ -253,6 +254,166 @@ class CGDiscriminator(tf.keras.Model):
         X = self.body(X)
 
         return X
+
+def pg_generator(output_resolution=4,
+                latent_dim=512,
+                leaky_relu_leak=0.2,
+                kernel_initializer='he_normal',
+                output_activation = tf.keras.activations.tanh,
+                name = 'PGGAN_Generator'):
+    
+    if output_resolution not in [4,8,16,32,64,128,256,512]:
+        raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
+
+    # Declare Inputs
+    z = tf.keras.Input(latent_dim)
+    alpha = tf.keras.Input((1), name='input_alpha')
+
+    X = generator_input_block(z, kernel_initializer=kernel_initializer, leaky_relu_alpha=leaky_relu_leak, latent_dim=latent_dim)
+
+    if output_resolution == 4:
+        to_rgb = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
+                                                        kernel_size=1,
+                                                        strides=1,
+                                                        padding='same',
+                                                        activation=output_activation,
+                                                        kernel_initializer=kernel_initializer,
+                                                        bias_initializer='zeros'), 
+                                                        name='to_rgb_4x4')
+        X = to_rgb(X)
+
+        return tf.keras.Model(inputs=[z, alpha], outputs=X)
+
+    # Fade In
+    resolution = 8
+    while resolution <= output_resolution:
+        X, upsampled_X = pg_upsample_block(X,
+                                            input_filters=512,
+                                            output_filters=512,
+                                            kernel_size=3,
+                                            strides=1,
+                                            padding='same',
+                                            leaky_relu_alpha=leaky_relu_leak,
+                                            kernel_initializer='he_normal',
+                                            name=f'Up_{resolution}x{resolution}')
+        resolution *= 2
+
+    to_rgb_current_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
+                                                    kernel_size=1,
+                                                    strides=1,
+                                                    padding='same',
+                                                    activation=output_activation,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'), 
+                                                    name=f'to_rgb_{output_resolution}x{output_resolution}')
+    
+    to_rgb_previous_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
+                                                    kernel_size=1,
+                                                    strides=1,
+                                                    padding='same',
+                                                    activation=output_activation,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'), 
+                                                    name=f'to_rgb_{output_resolution//2}x{output_resolution//2}')
+    l_X = to_rgb_current_resolution(X)
+    r_X = to_rgb_previous_resolution(upsampled_X)
+
+    # Left Branch
+    l_X = tf.keras.layers.Multiply()([alpha, l_X])
+
+    # Right branch
+    r_X = tf.keras.layers.Multiply()([1-alpha, r_X])
+
+    output = tf.keras.layers.Add()([l_X, r_X])
+
+    return tf.keras.Model(inputs=[z, alpha], outputs=output, name=name)
+
+def pg_discriminator(self,
+                input_resolution=4,
+                leaky_relu_leak=0.2,
+                kernel_initializer='he_normal',
+                name = 'PGGAN_Discriminator'):
+
+    input_images = tf.keras.Input((input_resolution, input_resolution, 3))
+    alpha = tf.keras.Input((1), name='input_alpha')
+
+    if self.resolution == 4:
+        from_rgb = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+                                                            kernel_size=1,
+                                                            strides=1,
+                                                            padding='same',
+                                                            activation=tf.nn.leaky_relu,
+                                                            kernel_initializer=self.kernel_initializer,
+                                                            bias_initializer='zeros'),
+                                                            name=f'from_rgb_{4}x{4}')
+
+        conv2d_up_channel = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+                                                                        kernel_size=1,
+                                                                        strides=1,
+                                                                        padding='same',
+                                                                        activation=tf.nn.leaky_relu,
+                                                                        kernel_initializer=self.kernel_initializer,
+                                                                        bias_initializer='zeros'), name='conv2d_up_channel')
+
+        X = from_rgb(input_images)
+        X = conv2d_up_channel(X)
+        X = discriminator_output_block(X, kernel_initializer, leaky_relu_leak)
+        return tf.keras.Model(inputs=[input, alpha], outputs=X)
+
+    # Left branch
+    from_rgb_current_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+                                                                            kernel_size=1,
+                                                                            strides=1,
+                                                                            padding='same',
+                                                                            activation=tf.nn.leaky_relu,
+                                                                            kernel_initializer=self.kernel_initializer,
+                                                                            bias_initializer='zeros'), 
+                                                                            name=f'from_rgb_{self.resolution}x{self.resolution}')
+
+
+    from_rgb_previous_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+                                                                            kernel_size=1,
+                                                                            strides=1,
+                                                                            padding='same',
+                                                                            activation=tf.nn.leaky_relu,
+                                                                            kernel_initializer=self.kernel_initializer,
+                                                                            bias_initializer='zeros'), 
+                                                                            name=f'from_rgb_{self.resolution//2}x{self.resolution//2}')
+
+    # Left branch
+    l_X = tf.keras.layers.AveragePooling2D(pool_size=2)(input_images)
+    l_X = from_rgb_previous_resolution(l_X)
+    l_X = tf.keras.layers.Multiply([1-alpha, l_X])
+
+    # Right branch
+    r_X = from_rgb_current_resolution(input_images)
+    r_X = pg_downsample_block(r_X,
+                            output_filters1=512,
+                            output_filters2=512,
+                            kernel_size=3,
+                            strides=1,
+                            padding='same',
+                            leaky_relu_alpha=leaky_relu_leak,
+                            kernel_initializer='he_normal',
+                            name=f'Down_{input_resolution}x{input_resolution}')
+    r_X = tf.keras.layers.Multiply([alpha, r_X])
+
+    X = tf.keras.layers.Add()([l_X, r_X])
+    resolution = 8
+    while resolution < input_resolution:
+        X = pg_downsample_block(X,
+                            output_filters1=512,
+                            output_filters2=512,
+                            kernel_size=3,
+                            strides=1,
+                            padding='same',
+                            leaky_relu_alpha=leaky_relu_leak,
+                            kernel_initializer='he_normal',
+                            name=f'Down_{resolution}x{resolution}')
+        resolution *= 2
+
+    X = discriminator_output_block(X, kernel_initializer, leaky_relu_leak)
+    return tf.keras.Model(inputs=[input, alpha], outputs=X, name=name)
 
 class PGGenerator(tf.keras.Model):
     def __init__(self,

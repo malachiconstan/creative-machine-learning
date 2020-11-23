@@ -127,8 +127,8 @@ class PixelNormalization(tf.keras.layers.Layer):
     Arguments:
       epsilon: a float-point number, the default is 1e-8
     """
-    def __init__(self, epsilon=1e-8):
-        super(PixelNormalization, self).__init__()
+    def __init__(self, epsilon=1e-8, **kwargs):
+        super(PixelNormalization, self).__init__(**kwargs)
         self.epsilon = epsilon
 
     def call(self, X):
@@ -164,6 +164,127 @@ class MinibatchSTDDEV(tf.keras.layers.Layer):
     
     def compute_output_shape(self, input_shape):
         return (input_shape[0], input_shape[1], input_shape[2], input_shape[3] + 1)
+
+# TF Graph Approach      
+def pg_upsample_block(input_,
+                    input_filters,
+                    output_filters,
+                    kernel_size=3,
+                    strides=1,
+                    padding='valid',
+                    leaky_relu_alpha=0.2,
+                    kernel_initializer='he_normal',
+                    name=''):
+
+    upsample = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(input_)
+    upsample_x = EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters,
+                                                    kernel_size,
+                                                    strides,
+                                                    padding=padding,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'), name=name+'_conv2d_1')(upsample)
+    X = PixelNormalization(name=name+'_norm_1')(upsample_x)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name=name+'_activation_1')(X)
+    X = EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters,
+                                                    kernel_size,
+                                                    strides,
+                                                    padding=padding,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'), name=name+'_conv2d_2')(X)
+    X = PixelNormalization(name=name+'_norm_2')(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name=name+'_activation_2')(X)
+    return X, upsample
+
+def pg_downsample_block(X,
+                        output_filters1,
+                        output_filters2,
+                        kernel_size=3,
+                        strides=1,
+                        padding='valid',
+                        leaky_relu_alpha=0.2,
+                        kernel_initializer='he_normal',
+                        name=''):
+                        
+    X = EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters1,
+                                                    kernel_size,
+                                                    strides,
+                                                    padding=padding,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'),
+                                                    name=name+'_conv2d_1')(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name=name+'_activation_1')(X)
+    X = EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters2,
+                                                    kernel_size,
+                                                    strides,
+                                                    padding=padding,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'),
+                                                    name=name+'_conv2d_2')(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name=name+'_activation_2')(X)
+    X = tf.keras.layers.AveragePooling2D(pool_size=2, name=name+'_avg_pool2D')(X)
+
+    return X
+
+def generator_input_block(X,
+                        kernel_initializer='he_normal',
+                        leaky_relu_alpha=0.2,
+                        latent_dim=512):
+
+    # Block 1
+    X = EqualizeLearningRate(tf.keras.layers.Dense(4*4*latent_dim,
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'),
+                                                    name='g_input_dense')(X)
+
+    X = PixelNormalization(name='g_input_norm_1')(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='g_input_activation_1')(X)
+
+    # Transition
+    X = tf.keras.layers.Reshape((4, 4, latent_dim), name='g_input_reshape')(X)
+
+    # Block 2
+    X = EqualizeLearningRate(tf.keras.layers.Conv2D(latent_dim,
+                                                    kernel_size=3,
+                                                    strides=1,
+                                                    padding='same',
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'),
+                                                    name='g_input_conv2d')(X)
+    X = PixelNormalization(name='g_input_norm_2')(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='g_input_activation_2')(X)
+
+    return X
+
+def discriminator_output_block(X,
+                            kernel_initializer='he_normal',
+                            leaky_relu_alpha=0.2):
+
+    X = MinibatchSTDDEV()(X)
+    X = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+                                                    kernel_size=3,
+                                                    strides=1,
+                                                    padding='same',
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'),
+                                                    name='d_output_conv2d_1')(X)
+
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha)(X)
+    
+    X = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+                                                    kernel_size=4,
+                                                    strides=1,
+                                                    padding='valid',
+                                                    kernel_initializer=kernel_initializer,
+                                                    bias_initializer='zeros'),
+                                                    name='d_output_conv2d_2')
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha)(X)
+    
+    X = tf.keras.layers.Flatten()(X)
+    X = EqualizeLearningRate(tf.keras.layers.Dense(1,
+                                            kernel_initializer=kernel_initializer,
+                                            bias_initializer='zeros'),
+                                            name='d_output_dense')(X)
+    return X
 
 class PGUpSampleBlock(tf.keras.Model):
     def __init__(self,

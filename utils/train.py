@@ -346,6 +346,8 @@ class CycleGANTrainer(object):
             self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
             if self.checkpoint_manager.latest_checkpoint:
                 print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+            else:
+                raise Exception('Cannot find checkpoint')
         
         for epoch in range(self.epochs):
             self.checkpoint.step.assign_add(1)

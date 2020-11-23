@@ -87,8 +87,8 @@ if __name__ == '__main__':
             os.path.join(data_directory,'unpaired_test_B')
         ]
 
-        file_paths = []
         for directory in directories:
+            file_paths = []
             for (dirpath, dirnames, filenames) in os.walk(directory):
                 file_paths.extend(filenames)
                 break
@@ -216,7 +216,7 @@ if __name__ == '__main__':
 
         if opt.img_height == 256:
             print('Using upscaled DCGAN')
-            generator = Generator(latent_dim = 512, upscale=True)
+            generator = Generator(latent_dim = opt.latent_dim, upscale=True)
             discriminator = Discriminator(upscale=True)
         else:
             generator = Generator(latent_dim = opt.latent_dim)
