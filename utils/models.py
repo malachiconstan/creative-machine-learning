@@ -266,7 +266,7 @@ def pg_generator(output_resolution=4,
         raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
 
     # Declare Inputs
-    z = tf.keras.Input(latent_dim)
+    z = tf.keras.Input(latent_dim, name=name+'_input')
     alpha = tf.keras.Input((1), name='input_alpha')
 
     X = generator_input_block(z, kernel_initializer=kernel_initializer, leaky_relu_alpha=leaky_relu_leak, latent_dim=latent_dim)
@@ -328,22 +328,21 @@ def pg_generator(output_resolution=4,
 
     return tf.keras.Model(inputs=[z, alpha], outputs=output, name=name)
 
-def pg_discriminator(self,
-                input_resolution=4,
+def pg_discriminator(input_resolution=4,
                 leaky_relu_leak=0.2,
                 kernel_initializer='he_normal',
                 name = 'PGGAN_Discriminator'):
 
-    input_images = tf.keras.Input((input_resolution, input_resolution, 3))
+    input_images = tf.keras.Input((input_resolution, input_resolution, 3), name=name+'_input')
     alpha = tf.keras.Input((1), name='input_alpha')
 
-    if self.resolution == 4:
+    if input_resolution == 4:
         from_rgb = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                             kernel_size=1,
                                                             strides=1,
                                                             padding='same',
                                                             activation=tf.nn.leaky_relu,
-                                                            kernel_initializer=self.kernel_initializer,
+                                                            kernel_initializer=kernel_initializer,
                                                             bias_initializer='zeros'),
                                                             name=f'from_rgb_{4}x{4}')
 
@@ -352,13 +351,13 @@ def pg_discriminator(self,
                                                                         strides=1,
                                                                         padding='same',
                                                                         activation=tf.nn.leaky_relu,
-                                                                        kernel_initializer=self.kernel_initializer,
+                                                                        kernel_initializer=kernel_initializer,
                                                                         bias_initializer='zeros'), name='conv2d_up_channel')
 
         X = from_rgb(input_images)
         X = conv2d_up_channel(X)
         X = discriminator_output_block(X, kernel_initializer, leaky_relu_leak)
-        return tf.keras.Model(inputs=[input, alpha], outputs=X)
+        return tf.keras.Model(inputs=[input_images, alpha], outputs=X)
 
     # Left branch
     from_rgb_current_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
@@ -366,9 +365,9 @@ def pg_discriminator(self,
                                                                             strides=1,
                                                                             padding='same',
                                                                             activation=tf.nn.leaky_relu,
-                                                                            kernel_initializer=self.kernel_initializer,
+                                                                            kernel_initializer=kernel_initializer,
                                                                             bias_initializer='zeros'), 
-                                                                            name=f'from_rgb_{self.resolution}x{self.resolution}')
+                                                                            name=f'from_rgb_{input_resolution}x{input_resolution}')
 
 
     from_rgb_previous_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
@@ -376,14 +375,14 @@ def pg_discriminator(self,
                                                                             strides=1,
                                                                             padding='same',
                                                                             activation=tf.nn.leaky_relu,
-                                                                            kernel_initializer=self.kernel_initializer,
+                                                                            kernel_initializer=kernel_initializer,
                                                                             bias_initializer='zeros'), 
-                                                                            name=f'from_rgb_{self.resolution//2}x{self.resolution//2}')
+                                                                            name=f'from_rgb_{input_resolution//2}x{input_resolution//2}')
 
     # Left branch
     l_X = tf.keras.layers.AveragePooling2D(pool_size=2)(input_images)
     l_X = from_rgb_previous_resolution(l_X)
-    l_X = tf.keras.layers.Multiply([1-alpha, l_X])
+    l_X = tf.keras.layers.Multiply()([1-alpha, l_X])
 
     # Right branch
     r_X = from_rgb_current_resolution(input_images)
@@ -396,11 +395,11 @@ def pg_discriminator(self,
                             leaky_relu_alpha=leaky_relu_leak,
                             kernel_initializer='he_normal',
                             name=f'Down_{input_resolution}x{input_resolution}')
-    r_X = tf.keras.layers.Multiply([alpha, r_X])
+    r_X = tf.keras.layers.Multiply()([alpha, r_X])
 
     X = tf.keras.layers.Add()([l_X, r_X])
-    resolution = 8
-    while resolution < input_resolution:
+    resolution = input_resolution//2
+    while resolution >= 8:
         X = pg_downsample_block(X,
                             output_filters1=512,
                             output_filters2=512,
@@ -410,10 +409,10 @@ def pg_discriminator(self,
                             leaky_relu_alpha=leaky_relu_leak,
                             kernel_initializer='he_normal',
                             name=f'Down_{resolution}x{resolution}')
-        resolution *= 2
+        resolution //= 2
 
     X = discriminator_output_block(X, kernel_initializer, leaky_relu_leak)
-    return tf.keras.Model(inputs=[input, alpha], outputs=X, name=name)
+    return tf.keras.Model(inputs=[input_images, alpha], outputs=X, name=name)
 
 class PGGenerator(tf.keras.Model):
     def __init__(self,
@@ -708,41 +707,46 @@ class ProgressiveGAN(object):
                 leaky_relu_leak=0.2,
                 kernel_initializer='he_normal',
                 output_activation = tf.keras.activations.tanh,
+                graph_mode=True,
                 **kwargs):
     
         if not 'config' in vars(self):
             self.config = edict()
 
-        # self.config.level_0_channels = level_0_channels
-        # self.config.init_bias_zero = init_bias_zero
+        self.graph_mode = graph_mode
+        
         self.config.resolution = resolution
         self.config.latent_dim = latent_dim
         self.config.leaky_relu_leak = leaky_relu_leak
         self.config.kernel_initializer = kernel_initializer
         self.config.output_activation = output_activation
-        # self.config.depthOtherScales = depthOtherScales
-        # self.config.per_channel_normalisation = per_channel_normalisation
-        # self.config.alpha = 0
-        # self.config.mini_batch_sd = mini_batch_sd
-        # self.config.equalizedlR = equalizedlR
-        
-        
-        # self.config.output_dim = output_dim
 
-        # self.config.GDPP = GDPP
+        if self.graph_mode:
+            print('Creating Functional Model')
+            self.Discriminator = pg_discriminator(
+                self.config.resolution,
+                self.config.leaky_relu_leak,
+                self.config.kernel_initializer
+            )
 
-        # WGAN-GP
-        # self.loss_criterion = wgan_loss
-        # self.config.lambdaGP = lambdaGP
+            self.Generator = pg_generator(
+                self.config.resolution,
+                self.config.latent_dim,
+                self.config.leaky_relu_leak,
+                self.config.kernel_initializer,
+                self.config.output_activation
+            )
 
-        self.Discriminator = PGDiscriminator(self.config.resolution,
-                            self.config.leaky_relu_leak,
-                            self.config.kernel_initializer)
-        self.Generator = PGGenerator(self.config.resolution,
-                            self.config.latent_dim,
-                            self.config.leaky_relu_leak,
-                            self.config.kernel_initializer,
-                            self.config.output_activation)
+        else:
+            print('Creating Eager Model')
+            self.Discriminator = PGDiscriminator(self.config.resolution,
+                                self.config.leaky_relu_leak,
+                                self.config.kernel_initializer)
+            self.Generator = PGGenerator(self.config.resolution,
+                                self.config.latent_dim,
+                                self.config.leaky_relu_leak,
+                                self.config.kernel_initializer,
+                                self.config.output_activation)
 
     @property
     def alpha(self):
@@ -762,8 +766,10 @@ class ProgressiveGAN(object):
             raise ValueError("alpha must be in [0,1]")
         
         print("Changing alpha to %.3f" % value)
-        self.Discriminator.alpha = value
-        self.Generator.alpha = value
+
+        if not self.graph_mode:
+            self.Discriminator.alpha = value
+            self.Generator.alpha = value
         self._alpha = value
         
     def get_resolution(self):
@@ -771,11 +777,27 @@ class ProgressiveGAN(object):
 
     def double_resolution(self):
         self.config.resolution *= 2
-        self.Discriminator.double_resolution()
-        self.Generator.double_resolution()
+        if self.graph_mode:
+            self.Discriminator = pg_discriminator(
+                self.config.resolution,
+                self.config.leaky_relu_leak,
+                self.config.kernel_initializer
+            )
 
-        print('Resolution Doubled. Model Built')
+            self.Generator = pg_generator(
+                self.config.resolution,
+                self.config.latent_dim,
+                self.config.leaky_relu_leak,
+                self.config.kernel_initializer,
+                self.config.output_activation
+            )
+            print(f'Resolution Doubled to {self.config.resolution}. New Model Built. Load back weights')
+        else:
+            self.Discriminator.double_resolution()
+            self.Generator.double_resolution()
+            print('Resolution Doubled.')
 
     def __call__(self, z):
+        # Use this to build the model
         assert z.shape[1] == self.config.latent_dim, f'Latent dimension must be same as {self.config.latent_dim}'
-        return self.Generator(z)
+        return self.Discriminator(self.Generator(z))

@@ -9,7 +9,7 @@ import pandas as pd
 
 from PIL import Image
 from IPython import display
-from copy import deepcopy
+from copy import deepcopy, copy
 from glob import glob
 
 from utils.configs.pggan_config import _C
@@ -563,13 +563,12 @@ class ProgressiveGANTrainer(object):
         self.dis_summary_writer = tf.summary.create_file_writer(self.dis_log_dir)
 
         # Test out the Generator
-        sample_noise = tf.random.normal((9, config.latent_dim), seed=0)
-        self.generate_and_save_images(0, sample_noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+        self.generate_and_save_images(0, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
         # Create many tf functions
         # res = self.start_resolution
-        # self.discriminator_train_steps = dict()
-        # self.generator_train_steps = dict()
+        self.discriminator_train_steps = dict()
+        self.generator_train_steps = dict()
         # while res <= self.stop_resolution:
         #     self.discriminator_train_steps[str(res)] = deepcopy(self.discriminator_train_step)
         #     self.generator_train_steps[str(res)] = deepcopy(self.generator_train_step)
@@ -588,9 +587,11 @@ class ProgressiveGANTrainer(object):
             self.config.output_activation
         )
 
-    def generate_and_save_images(self, epoch, test_input, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
+    def generate_and_save_images(self, epoch, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
         # Test input is a list include noise and label
-        predictions = self.model(test_input)
+        sample_noise = tf.random.normal((9, self.latent_dim), seed=0)
+        alpha_tensor = tf.constant(np.repeat(1, 9).reshape(9, 1), dtype=tf.float32)
+        predictions = self.model.Generator((sample_noise, alpha_tensor))
         fig = plt.figure(figsize=figure_size)
         for i in range(predictions.shape[0]):
             axs = plt.subplot(subplot[0], subplot[1], i+1)
@@ -614,6 +615,8 @@ class ProgressiveGANTrainer(object):
             print(f"Saved checkpoint for step {int(self.checkpoint.step)}: {save_path}")
         
         # After transition mandatory save and load
+        self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
+        self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
 
         if save_to_gdrive:
             from utils.drive_helper import copy_to_gdrive
@@ -624,14 +627,16 @@ class ProgressiveGANTrainer(object):
                 os.makedirs(g_drive_path)
 
             checkpoint_path = os.path.join(g_drive_path,'checkpoints.zip')
+            weights_path = os.path.join(g_drive_path,'weights.zip')
             logs_path = os.path.join(g_drive_path,'logs.zip')
 
             copy_to_gdrive(local_path=self.checkpoint_dir, g_drive_path=checkpoint_path)
+            copy_to_gdrive(local_path=self.model_save_dir, g_drive_path=weights_path)
             copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
             print('Checkpoints Saved to ',checkpoint_path)
             print('Logs Saved to ',logs_path)
 
-    def load_saved_training(self, load_from_g_drive=False):
+    def load_saved_training(self, load_from_g_drive=False, load_weights=True):
         """
         Load a given checkpoint.
         """ 
@@ -645,13 +650,24 @@ class ProgressiveGANTrainer(object):
         self.overall_steps = tf.train.load_variable(self.checkpoint_dir, 'step/.ATTRIBUTES/VARIABLE_VALUE')
         self.start_epoch = tf.train.load_variable(self.checkpoint_dir, 'epoch/.ATTRIBUTES/VARIABLE_VALUE')
         self.initialise_model()
-        
+
         # Load saved checkpoint
         self.checkpoint.restore(self.checkpoint_manager.latest_checkpoint)
         if self.checkpoint_manager.latest_checkpoint:
             print(f"Restored from {self.checkpoint_manager.latest_checkpoint}")
+
+        if load_weights:
+            self.load_weights(self.start_resolution)
         
         print(f'Start training from {self.start_resolution}x{self.start_resolution} at epoch: {self.start_epoch}, step: {self.overall_steps}')
+
+    def load_weights(self, load_resolution):
+        if os.path.isfile(os.path.join(self.model_save_dir, f'{load_resolution}x{load_resolution}_generator.h5')):
+            self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{load_resolution}x{load_resolution}_generator.h5'), by_name=True)
+            print("Generator weights loaded")
+        if os.path.isfile(os.path.join(self.model_save_dir, f'{load_resolution}x{load_resolution}_generator.h5')):
+            self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{load_resolution}x{load_resolution}_discriminator.h5'), by_name=True)
+            print("Discriminator weights loaded")
 
     @staticmethod
     def calculate_batch_size(resolution):
@@ -711,7 +727,6 @@ class ProgressiveGANTrainer(object):
             print(f'Size {resolution}x{resolution} training begins')
 
             # Define specific paths
-            # self.temp_config_path = os.path.join(self.checkpoint_dir, f'{self.model_label}_{scale}_' + "_tmp_config.json")
             self.checkpoint.resolution.assign(resolution)
             self.resolution_batch_size = self.calculate_batch_size(resolution)
             
@@ -726,6 +741,10 @@ class ProgressiveGANTrainer(object):
                 print(f'Dataset for resolution {resolution}x{resolution} obtained')
                 print('Dataset Length: ', len(train_dataset))
 
+            # Create training steps
+            self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
+            self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
+
             training_steps = np.ceil(len(train_dataset) / self.batch_size)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
@@ -735,23 +754,13 @@ class ProgressiveGANTrainer(object):
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
-            # self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-            # self.model.Generator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_generator.h5'))
-            # self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, f'{resolution}x{resolution}_discriminator.h5'))
+            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            
             # Add scale
             if resolution != self.stop_resolution:
                 self.model.double_resolution()
-
+                self.load_weights(resolution)
             resolution *= 2
-            # self.initialise_model(resolution)
-            # self.load_saved_training(load_from_g_drive=load_from_g_drive)
-                    
-            # if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
-            #     self.model.Generator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5'), by_name=True)
-            #     print("generator loaded")
-            # if os.path.isfile(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_generator.h5')):
-            #     self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, f'{resolution//2}x{resolution//2}_discriminator.h5'), by_name=True)
-            #     print("discriminator loaded")
 
         return True
 
@@ -774,11 +783,11 @@ class ProgressiveGANTrainer(object):
             self.overall_steps += 1
 
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            # self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
-            # self.generator_train_steps[str(resolution)](noise, verbose=verbose)
+            self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
+            self.generator_train_steps[str(resolution)](noise, verbose=verbose)
 
-            self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
-            self.generator_train_step(noise, verbose=verbose)
+            # self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
+            # self.generator_train_step(noise, verbose=verbose)
             
             # update alpha
             if resolution > 4:
@@ -787,45 +796,45 @@ class ProgressiveGANTrainer(object):
             if real_image_batch.shape[0] < self.resolution_batch_size:
                 raise ValueError('Image batch shape less than resolution batch size')
 
-            # Write logged losses
-            if self.overall_steps % self.loss_iter_evaluation == 0:
-                
-                # Log alpha
-                self.metrics['alpha'](self.alpha)
+        # Write logged losses
+        if epoch % self.loss_iter_evaluation == 0:
+            alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+            
+            # Log alpha
+            self.metrics['alpha'](self.alpha)
 
-                with self.gen_summary_writer.as_default():
-                    tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
-                    tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.overall_steps)
-                    tf.summary.scalar('alpha', self.metrics['alpha'].result(), step=self.overall_steps)
+            with self.gen_summary_writer.as_default():
+                tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
+                tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.overall_steps)
+                tf.summary.scalar('alpha', self.metrics['alpha'].result(), step=self.overall_steps)
 
-                with self.dis_summary_writer.as_default():
-                    tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
-                    tf.summary.scalar('discriminator_wasserstein_loss_fake', self.metrics['discriminator_wasserstein_loss_fake'].result(), step=self.overall_steps)
-                    tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.overall_steps)
-                    # tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
-                    tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
+            with self.dis_summary_writer.as_default():
+                tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
+                tf.summary.scalar('discriminator_wasserstein_loss_fake', self.metrics['discriminator_wasserstein_loss_fake'].result(), step=self.overall_steps)
+                tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.overall_steps)
+                # tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
+                tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
 
-                # Save Images
-                predicted_image = self.model.Generator(noise, training=False)
-                predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
-                with self.gen_summary_writer.as_default():
-                    tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
+            # Save Images
+            predicted_image = self.model.Generator((noise,alpha_tensor), training=False)
+            predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
+            with self.gen_summary_writer.as_default():
+                tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
 
-                # Take a look at real images
-                real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
-                with self.dis_summary_writer.as_default():
-                    tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.overall_steps)
+            # Take a look at real images
+            real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+            with self.dis_summary_writer.as_default():
+                tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.overall_steps)
 
-                sample_noise = tf.random.normal((9, self.latent_dim))
-                self.generate_and_save_images(epoch, sample_noise, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+            self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
-            # Save Checkpoint
-            if self.overall_steps % self.save_iter == 0:
-                self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+        # Save Checkpoint
+        if epoch % self.save_iter == 0:
+            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
 
-            # Reset Losses
-            for k in self.metrics:
-                self.metrics[k].reset_states()
+        # Reset Losses
+        for k in self.metrics:
+            self.metrics[k].reset_states()
 
         self.checkpoint.epoch.assign(epoch)
 
@@ -836,15 +845,16 @@ class ProgressiveGANTrainer(object):
 
         return True
 
-    # @tf.function
+    @tf.function
     def discriminator_train_step(self, real_images, noise, verbose=False):
         epsilon = tf.random.uniform(shape=[self.batch_size, 1, 1, 1], minval=0, maxval=1)
+        alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
 
         with tf.GradientTape(persistent=True) as d_tape:
             with tf.GradientTape() as gp_tape:
-                generated_images = self.model.Generator(noise, training=True)
+                generated_images = self.model.Generator((noise, alpha_tensor), training=True)
                 generated_images_mixed = epsilon * tf.dtypes.cast(real_images, tf.float32) + ((1 - epsilon) * generated_images)
-                fake_mixed_pred = self.model.Discriminator(generated_images_mixed, training=True)
+                fake_mixed_pred = self.model.Discriminator((generated_images_mixed,alpha_tensor), training=True)
                 
             # Compute gradient penalty
             grads = gp_tape.gradient(fake_mixed_pred, generated_images_mixed)
@@ -853,10 +863,10 @@ class ProgressiveGANTrainer(object):
             if verbose:
                 print('Obtained Wasserstein Gradient Penalty for Discriminator')
             
-            discriminator_wloss_real = -tf.math.reduce_mean(self.model.Discriminator(real_images, training=True))
+            discriminator_wloss_real = -tf.math.reduce_mean(self.model.Discriminator((real_images,alpha_tensor), training=True))
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on REAL images')
-            discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator(generated_images, training=True))
+            discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator((generated_images,alpha_tensor), training=True))
             if verbose:
                 print('Obtained Wasserstein Loss for Discriminator on FAKE images')
 
@@ -877,12 +887,14 @@ class ProgressiveGANTrainer(object):
         if verbose:
             print('Applied discriminator loss gradients')
 
-    # @tf.function
+    @tf.function
     def generator_train_step(self, noise, verbose=False, return_generated_images=False):
 
+        alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+
         with tf.GradientTape() as g_tape:
-            generated_images = self.model.Generator(noise, training=True)
-            fake_predictions = self.model.Discriminator(generated_images, training=True)
+            generated_images = self.model.Generator((noise,alpha_tensor), training=True)
+            fake_predictions = self.model.Discriminator((generated_images,alpha_tensor), training=True)
 
             generator_wloss_fake = -tf.math.reduce_mean(fake_predictions)
             if verbose:

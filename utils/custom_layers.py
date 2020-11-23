@@ -268,7 +268,7 @@ def discriminator_output_block(X,
                                                     bias_initializer='zeros'),
                                                     name='d_output_conv2d_1')(X)
 
-    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha)(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='d_output_activation_1')(X)
     
     X = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                     kernel_size=4,
@@ -276,10 +276,10 @@ def discriminator_output_block(X,
                                                     padding='valid',
                                                     kernel_initializer=kernel_initializer,
                                                     bias_initializer='zeros'),
-                                                    name='d_output_conv2d_2')
-    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha)(X)
+                                                    name='d_output_conv2d_2')(X)
+    X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='d_output_activation_2')(X)
     
-    X = tf.keras.layers.Flatten()(X)
+    X = tf.keras.layers.Flatten(name='d_output_flatten')(X)
     X = EqualizeLearningRate(tf.keras.layers.Dense(1,
                                             kernel_initializer=kernel_initializer,
                                             bias_initializer='zeros'),
