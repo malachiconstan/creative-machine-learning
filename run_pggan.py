@@ -47,6 +47,17 @@ def get_options():
 if __name__ == '__main__':
     opt = get_options()
 
+    # Rename files
+    file_paths = []
+    for (dirpath, dirnames, filenames) in os.walk(os.path.join(os.getcwd(),'data','google_pavilion')):
+        file_paths.extend(filenames)
+        break
+    for file_path in file_paths:
+        file_path = os.path.join(directory, file_path)
+        if '.jpg' in os.path.splitext(file_path)[1]:
+            base = os.path.splitext(file_path)[0]
+            os.rename(file_path, base + '.jpeg')
+
     config = edict()
     config.datapath = os.path.join(os.getcwd(),'data','google_pavilion','*.jpeg')
     config.latent_dim = 512
