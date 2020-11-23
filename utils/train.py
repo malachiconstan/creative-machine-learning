@@ -634,6 +634,7 @@ class ProgressiveGANTrainer(object):
             copy_to_gdrive(local_path=self.model_save_dir, g_drive_path=weights_path)
             copy_to_gdrive(local_path=self.log_dir, g_drive_path=logs_path)
             print('Checkpoints Saved to ',checkpoint_path)
+            print('Weights Saved to ',weights_path)
             print('Logs Saved to ',logs_path)
 
     def load_saved_training(self, load_from_g_drive=False, load_weights=True):
@@ -644,6 +645,8 @@ class ProgressiveGANTrainer(object):
             from utils.drive_helper import extract_data_g_drive
             extract_data_g_drive('CML/checkpoints.zip', mounted=True, extracting_checkpoints=True)
             print('Extracted checkpoints from colab')
+            extract_data_g_drive('CML/weights.zip', mounted=True, extracting_checkpoints=True, checkpoint_dir = 'pggan_weights')
+            print('Extracted weights from colab')
 
         # Get resolution from latest checkpoint
         self.start_resolution = tf.train.load_variable(self.checkpoint_dir, 'resolution/.ATTRIBUTES/VARIABLE_VALUE')

@@ -18,7 +18,7 @@ def get_options():
     parser = argparse.ArgumentParser()
 
     # General options. Change all other options in pggan_config.py
-    parser.add_argument('--save_iter', default=5, type=int, help='Number of epochs before saving')
+    parser.add_argument('--save_iter', default=20, type=int, help='Number of epochs before saving')
     parser.add_argument('--loss_iter_evaluation', default=1, type=int, help='Number of epochs before saving an image')
 
     # Optimizer options
@@ -62,9 +62,9 @@ if __name__ == '__main__':
     config.datapath = os.path.join(os.getcwd(),'data','google_pavilion','*.jpeg')
     config.latent_dim = 512
     config.resolution = 4
-    config.stop_resolution = 16
+    config.stop_resolution = 128
     config.start_epoch = 1
-    config.epochs = 3
+    config.epochs = 320
     config.lambdaGP = 10
     config.leaky_relu_leak = 0.2
     config.kernel_initializer = 'he_normal'
