@@ -724,7 +724,7 @@ class ProgressiveGAN(object):
 
         if self.graph_mode:
             print('Creating Functional Model')
-            self.Discriminator, self.Generator = model_builder(self.config.resolution)
+            self.Generator, self.Discriminator = model_builder(self.config.resolution)
 #             self.Discriminator = pg_discriminator(
 #                 self.config.resolution,
 #                 self.config.leaky_relu_leak,
@@ -780,7 +780,7 @@ class ProgressiveGAN(object):
     def double_resolution(self):
         self.config.resolution *= 2
         if self.graph_mode:
-            self.Discriminator, self.Generator = model_builder(self.config.resolution)
+            self.Generator, self.Discriminator = model_builder(self.config.resolution)
 #             self.Discriminator = pg_discriminator(
 #                 self.config.resolution,
 #                 self.config.leaky_relu_leak,
