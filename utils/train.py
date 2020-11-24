@@ -905,7 +905,7 @@ class ProgressiveGANTrainer(object):
                 # preprocess_function = partial(preprocess_image, target_size=image_size)
                 dataset = get_image_dataset('data/google_pavilion/*.jpeg',resolution, resolution, batch_size=self.resolution_batch_size)
                 training_steps = np.ceil(len(dataset) / self.resolution_batch_size)
-                alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
+                self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
                 print('start training {} * {} model'.format(resolution, resolution))
     
     @tf.function
