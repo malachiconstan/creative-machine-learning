@@ -847,78 +847,127 @@ class ProgressiveGANTrainer(object):
             print('Completed')
 
         return True
-
+    
     @tf.function
-    def discriminator_train_step(self, real_images, noise, verbose=False):
-        epsilon = tf.random.uniform(shape=[self.batch_size, 1, 1, 1], minval=0, maxval=1)
+    def discriminator_train_step(self, real_image, noise_, verbose):
+        noise = tf.random.normal([self.resolution_batch_size, self.latent_dim])
+        epsilon = tf.random.uniform(shape=[self.resolution_batch_size, 1, 1, 1], minval=0, maxval=1)
         alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
-
+        ###################################
+        # Train D
+        ###################################
         with tf.GradientTape(persistent=True) as d_tape:
             with tf.GradientTape() as gp_tape:
-                generated_images = self.model.Generator((noise, alpha_tensor), training=True)
-                generated_images_mixed = epsilon * tf.dtypes.cast(real_images, tf.float32) + ((1 - epsilon) * generated_images)
-                fake_mixed_pred = self.model.Discriminator((generated_images_mixed,alpha_tensor), training=True)
-                
+                fake_image = self.model.Generator([noise, alpha_tensor], training=True)
+                fake_image_mixed = epsilon * tf.dtypes.cast(real_image, tf.float32) + ((1 - epsilon) * fake_image)
+                fake_mixed_pred = self.model.Discriminator([fake_image_mixed, alpha_tensor], training=True)
+
             # Compute gradient penalty
-            grads = gp_tape.gradient(fake_mixed_pred, generated_images_mixed)
+            grads = gp_tape.gradient(fake_mixed_pred, fake_image_mixed)
             grad_norms = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
-            discriminator_gradient_penalty = tf.reduce_mean(tf.square(grad_norms - 1))
-            if verbose:
-                print('Obtained Wasserstein Gradient Penalty for Discriminator')
+            gradient_penalty = tf.reduce_mean(tf.square(grad_norms - 1))
+
+            fake_pred = self.model.Discriminator([fake_image, alpha_tensor], training=True)
+            real_pred = self.model.Discriminator([real_image, alpha_tensor], training=True)
+
+            D_loss = tf.reduce_mean(fake_pred) - tf.reduce_mean(real_pred) + self.config.lambdaGP* gradient_penalty
             
-            discriminator_wloss_real = -tf.math.reduce_mean(self.model.Discriminator((real_images,alpha_tensor), training=True))
-            if verbose:
-                print('Obtained Wasserstein Loss for Discriminator on REAL images')
-            discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator((generated_images,alpha_tensor), training=True))
-            if verbose:
-                print('Obtained Wasserstein Loss for Discriminator on FAKE images')
-
-            total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + self.config.lambdaGP*discriminator_gradient_penalty
-
             # Log losses
-            self.metrics['discriminator_wasserstein_loss_real'](discriminator_wloss_real)
-            self.metrics['discriminator_wasserstein_loss_fake'](discriminator_wloss_fake)
-            self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
-            self.metrics['discriminator_loss'](total_discriminator_loss)
-
+            self.metrics['discriminator_loss'](D_loss)
         # Calculate the gradients for discriminator
-        gradients_of_discriminator = d_tape.gradient(total_discriminator_loss, self.model.Discriminator.trainable_variables)
-        if verbose:
-            print('Computed discriminator loss gradients')
-
-        self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.Discriminator.trainable_variables))
-        if verbose:
-            print('Applied discriminator loss gradients')
-
-    @tf.function
-    def generator_train_step(self, noise, verbose=False, return_generated_images=False):
-
-        alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
-
-        with tf.GradientTape() as g_tape:
-            generated_images = self.model.Generator((noise,alpha_tensor), training=True)
-            fake_predictions = self.model.Discriminator((generated_images,alpha_tensor), training=True)
-
-            generator_wloss_fake = -tf.math.reduce_mean(fake_predictions)
-            if verbose:
-                print('Obtained Wasserstein Loss for Generator on FAKE images')
-
-            total_generator_loss = generator_wloss_fake
-
-            self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
-            self.metrics['generator_loss'](total_generator_loss)
-        
-        # Calculate the gradients for discriminator
-        gradients_of_generator = g_tape.gradient(total_generator_loss, self.model.Generator.trainable_variables)
-        if verbose:
-            print('Computed generator loss gradients')
+        D_gradients = d_tape.gradient(D_loss,self.model.Discriminator.trainable_variables)
         # Apply the gradients to the optimizer
-        self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.Generator.trainable_variables))
-        if verbose:
-            print('Applied generator loss gradients')
+        self.discriminator_optimizer.apply_gradients(zip(D_gradients,self.model.Discriminator.trainable_variables))
+        
+    @tf.function
+    def generator_train_step(self, noise_, verbose=False, return_generated_images=False):
+        noise = tf.random.normal([self.resolution_batch_size, self.latent_dim])
+        alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+        ###################################
+        # Train G
+        ###################################
+        with tf.GradientTape() as g_tape:
+            fake_image = self.model.Generator([noise, alpha_tensor], training=True)
+            fake_pred = self.model.Discriminator([fake_image, alpha_tensor], training=True)
+            G_loss = -tf.reduce_mean(fake_pred)
+        
+        self.metrics['generator_loss'](G_loss)
+        # Calculate the gradients for discriminator
+        G_gradients = g_tape.gradient(G_loss,self.model.Generator.trainable_variables)
+        # Apply the gradients to the optimizer
+        self.generator_optimizer.apply_gradients(zip(G_gradients,self.model.Generator.trainable_variables))
 
-        if return_generated_images:
-            return generated_images
+#     @tf.function
+#     def discriminator_train_step_old(self, real_images, noise, verbose=False):
+#         epsilon = tf.random.uniform(shape=[self.resolution_batch_size, 1, 1, 1], minval=0, maxval=1)
+#         alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+
+#         with tf.GradientTape(persistent=True) as d_tape:
+#             with tf.GradientTape() as gp_tape:
+#                 generated_images = self.model.Generator((noise, alpha_tensor), training=True)
+#                 generated_images_mixed = epsilon * tf.dtypes.cast(real_images, tf.float32) + ((1 - epsilon) * generated_images)
+#                 fake_mixed_pred = self.model.Discriminator((generated_images_mixed,alpha_tensor), training=True)
+                
+#             # Compute gradient penalty
+#             grads = gp_tape.gradient(fake_mixed_pred, generated_images_mixed)
+#             grad_norms = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
+#             discriminator_gradient_penalty = tf.reduce_mean(tf.square(grad_norms - 1))
+#             if verbose:
+#                 print('Obtained Wasserstein Gradient Penalty for Discriminator')
+            
+#             discriminator_wloss_real = -tf.math.reduce_mean(self.model.Discriminator((real_images,alpha_tensor), training=True))
+#             if verbose:
+#                 print('Obtained Wasserstein Loss for Discriminator on REAL images')
+#             discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator((generated_images,alpha_tensor), training=True))
+#             if verbose:
+#                 print('Obtained Wasserstein Loss for Discriminator on FAKE images')
+
+#             total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + self.config.lambdaGP*discriminator_gradient_penalty
+
+#             # Log losses
+#             self.metrics['discriminator_wasserstein_loss_real'](discriminator_wloss_real)
+#             self.metrics['discriminator_wasserstein_loss_fake'](discriminator_wloss_fake)
+#             self.metrics['discriminator_wasserstein_gradient_penalty'](discriminator_gradient_penalty)
+#             self.metrics['discriminator_loss'](total_discriminator_loss)
+
+#         # Calculate the gradients for discriminator
+#         gradients_of_discriminator = d_tape.gradient(total_discriminator_loss, self.model.Discriminator.trainable_variables)
+#         if verbose:
+#             print('Computed discriminator loss gradients')
+
+#         self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.Discriminator.trainable_variables))
+#         if verbose:
+#             print('Applied discriminator loss gradients')
+
+#     @tf.function
+#     def generator_train_step_old(self, noise, verbose=False, return_generated_images=False):
+
+#         alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+
+#         with tf.GradientTape() as g_tape:
+#             generated_images = self.model.Generator((noise,alpha_tensor), training=True)
+#             fake_predictions = self.model.Discriminator((generated_images,alpha_tensor), training=True)
+
+#             generator_wloss_fake = -tf.math.reduce_mean(fake_predictions)
+#             if verbose:
+#                 print('Obtained Wasserstein Loss for Generator on FAKE images')
+
+#             total_generator_loss = generator_wloss_fake
+
+#             self.metrics['generator_wasserstein_loss'](generator_wloss_fake)
+#             self.metrics['generator_loss'](total_generator_loss)
+        
+#         # Calculate the gradients for discriminator
+#         gradients_of_generator = g_tape.gradient(total_generator_loss, self.model.Generator.trainable_variables)
+#         if verbose:
+#             print('Computed generator loss gradients')
+#         # Apply the gradients to the optimizer
+#         self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.model.Generator.trainable_variables))
+#         if verbose:
+#             print('Applied generator loss gradients')
+
+#         if return_generated_images:
+#             return generated_images
 
     # @tf.function
     # def train_step(self, real_images, noise, return_generated_images=False, verbose=False):
