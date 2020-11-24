@@ -711,63 +711,6 @@ class ProgressiveGANTrainer(object):
             self.model.alpha = value
             self._alpha = value
 
-    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
-        """
-        Launch the training. This one will stop if a divergent behavior is
-        detected.
-        Returns:
-            - True if the training completed
-            - False if the training was interrupted due to a divergent behavior
-        """
-        self.colab = colab
-        self.train_start_time = time.time()
-        self.g_drive_path = g_drive_path
-
-        if restore:
-            self.load_saved_training(load_from_g_drive=load_from_g_drive)
-
-        resolution = self.start_resolution
-        while resolution <= self.stop_resolution:
-            print(f'Size {resolution}x{resolution} training begins')
-
-            # Define specific paths
-            self.checkpoint.resolution.assign(resolution)
-            self.resolution_batch_size = self.calculate_batch_size(resolution)
-            
-            # Get train dataset at the correct image scale
-            train_dataset = get_image_dataset(self.datapath,
-                                            img_height=resolution,
-                                            img_width=resolution,
-                                            batch_size=self.resolution_batch_size,
-                                            normalize=True)
-            
-            if verbose:
-                print(f'Dataset for resolution {resolution}x{resolution} obtained')
-                print('Dataset Length: ', len(train_dataset))
-
-            # Create training steps
-            self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
-            self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
-
-            training_steps = np.ceil(len(train_dataset) / self.batch_size)
-            # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
-            self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
-            self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
-
-            assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
-            for epoch in range(self.start_epoch, self.epochs + 1):
-                self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
-
-            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-            
-            # Add scale
-            if resolution != self.stop_resolution:
-                self.model.double_resolution()
-                self.load_weights(resolution)
-            resolution *= 2
-
-        return True
-
     def train_epoch(self,
                     dataset,
                     resolution,
@@ -849,10 +792,79 @@ class ProgressiveGANTrainer(object):
 
         return True
 
-    def train_special(self, total_epochs):
-        self.colab = False
+    
+    def train(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
+        """
+        Launch the training. This one will stop if a divergent behavior is
+        detected.
+        Returns:
+            - True if the training completed
+            - False if the training was interrupted due to a divergent behavior
+        """
+        self.colab = colab
         self.train_start_time = time.time()
-        self.g_drive_path = '/content/drive/My Drive/CML'
+        self.g_drive_path = g_drive_path
+
+        if restore:
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
+
+        resolution = self.start_resolution
+        while resolution <= self.stop_resolution:
+            print(f'Size {resolution}x{resolution} training begins')
+
+            # Define specific paths
+            self.checkpoint.resolution.assign(resolution)
+            self.resolution_batch_size = self.calculate_batch_size(resolution)
+            
+            # Get train dataset at the correct image scale
+            train_dataset = get_image_dataset(self.datapath,
+                                            img_height=resolution,
+                                            img_width=resolution,
+                                            batch_size=self.resolution_batch_size,
+                                            normalize=True)
+            
+            if verbose:
+                print(f'Dataset for resolution {resolution}x{resolution} obtained')
+                print('Dataset Length: ', len(train_dataset))
+
+            # Create training steps
+            self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
+            self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
+
+            training_steps = np.ceil(len(train_dataset) / self.batch_size)
+            # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
+            self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
+            self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
+
+            assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
+            for epoch in range(self.start_epoch, self.epochs + 1):
+                self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
+
+            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            
+            # Add scale
+            if resolution != self.stop_resolution:
+                self.model.double_resolution()
+                self.load_weights(resolution)
+            resolution *= 2
+
+        return True
+
+    def train_special(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
+        """
+        Launch the training. This one will stop if a divergent behavior is
+        detected.
+        Returns:
+            - True if the training completed
+            - False if the training was interrupted due to a divergent behavior
+        """
+        self.colab = colab
+        self.train_start_time = time.time()
+        self.g_drive_path = g_drive_path
+
+        if restore:
+            self.load_saved_training(load_from_g_drive=load_from_g_drive)
+
         resolution = self.start_resolution
         def calculate_batch_size(image_size):
             if image_size < 64:
@@ -879,8 +891,8 @@ class ProgressiveGANTrainer(object):
         self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  self.resolution_alpha_increment)
         self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
         self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
-        for epoch in range(self.start_epoch, total_epochs + 1):
-            self.train_epoch(dataset, resolution, epoch, True)
+        for epoch in range(self.start_epoch, self.epochs + 1):
+            self.train_epoch(dataset, resolution, epoch, verbose=verbose)
             
             # Train next resolution
             if epoch % switch_res_every_n_epoch == 0:
