@@ -885,12 +885,13 @@ class ProgressiveGANTrainer(object):
                                         batch_size=self.resolution_batch_size,
                                         normalize=True)
 
+            training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
+
             if verbose:
                 print(f'Dataset for resolution {resolution}x{resolution} obtained')
                 print('Dataset Length: ', len(train_dataset))
                 print('Batch Size: ',self.resolution_batch_size)
-
-            training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
+                print('Training Steps: ',training_steps)
 
             self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
             self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
