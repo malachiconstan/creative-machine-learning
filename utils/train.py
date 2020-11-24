@@ -847,6 +847,101 @@ class ProgressiveGANTrainer(object):
             print('Completed')
 
         return True
+
+    def train_special(self):
+        image_size = self.start_resolution
+        def calculate_batch_size(image_size):
+            if image_size < 64:
+                return 16
+            elif image_size < 128:
+                return 12
+            elif image_size == 128:
+                return 8
+            elif image_size == 256:
+                return 4
+            else:
+                return 3
+        # current_learning_rate = LR
+        train_data = get_image_dataset(self.datapath,
+                                            img_height=image_size,
+                                            img_width=image_size,
+                                            batch_size=calculate_batch_size(image_size),
+                                            normalize=True)
+        training_steps = np.ceil(len(train_data) / 16)
+        switch_res_every_n_epoch = 40
+        # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
+        alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
+        alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  alpha_increment)
+        overall_steps = 0
+        for epoch in range(self.start_epoch, self.epochs + 1):
+            start = time.time()
+            print('Start of epoch %d' % (epoch,))
+            print('Current alpha: %f' % (alpha,))
+            print('Current resolution: {} * {}'.format(image_size, image_size))
+            # Using learning rate decay
+        #     current_learning_rate = learning_rate_decay(current_learning_rate)
+        #     print('current_learning_rate %f' % (current_learning_rate,))
+        #     set_learning_rate(current_learning_rate) 
+            
+            for step, (image) in enumerate(train_data):
+                overall_steps += 1
+                current_batch_size = image.shape[0]
+                # alpha_tensor = tf.constant(np.repeat(alpha, current_batch_size).reshape(current_batch_size, 1), dtype=tf.float32)
+                # Train step
+                self.discriminator_train_step(image, None, verbose=False)
+                self.generator_train_step(None)
+
+
+                # WGAN_GP_train_d_step(model.Generator, model.Discriminator, image, alpha_tensor,
+                #                     batch_size=tf.constant(current_batch_size, dtype=tf.int64), step=tf.constant(overall_steps, dtype=tf.int64))
+                # WGAN_GP_train_g_step(model.Generator, model.Discriminator, alpha_tensor,
+                #                     batch_size=tf.constant(current_batch_size, dtype=tf.int64), step=tf.constant(overall_steps, dtype=tf.int64))
+                
+                
+                # update alpha
+                alpha = min(1., alpha + alpha_increment)
+                
+                if step % 10 == 0:
+                    print ('.', end='')
+            
+            # Clear jupyter notebook cell output
+            # clear_output(wait=True)
+            # Using a consistent image (sample_X) so that the progress of the model is clearly visible.
+            self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+            
+            if epoch % 10 == 0:
+                self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(image_size, image_size)))
+                self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(image_size, image_size)))
+                print ('Saving model for epoch {}'.format(epoch))
+            
+            print ('Time taken for epoch {} is {} sec\n'.format(epoch,
+                                                            time.time()-start))
+            
+            
+            # Train next resolution
+            if epoch % switch_res_every_n_epoch == 0:
+                print('saving {} * {} model'.format(image_size, image_size))
+                self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(image_size, image_size)))
+                self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(image_size, image_size)))
+                # Reset alpha
+                alpha = 0
+                previous_image_size = int(image_size)
+                image_size = int(image_size * 2)
+                if image_size > 512:
+                    print('Resolution reach 512x512, finish training')
+                    break
+                print('creating {} * {} model'.format(image_size, image_size))
+                self.model.double_resolution()
+                self.model.Generator.load_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
+                self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
+                
+                print('Making {} * {} dataset'.format(image_size, image_size))
+                # batch_size = calculate_batch_size(image_size)
+                # preprocess_function = partial(preprocess_image, target_size=image_size)
+                train_data = get_image_dataset('data/google_pavilion/*.jpeg',image_size, image_size, batch_size=calculate_batch_size(image_size))
+                training_steps = np.ceil(len(train_data) / calculate_batch_size(image_size))
+                alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
+                print('start training {} * {} model'.format(image_size, image_size))
     
     @tf.function
     def discriminator_train_step(self, real_image, noise_, verbose):
