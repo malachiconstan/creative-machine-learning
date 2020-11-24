@@ -12,6 +12,7 @@ from IPython import display
 from copy import deepcopy, copy
 from glob import glob
 
+from IPython.display import clear_output
 from utils.configs.pggan_config import _C
 from utils.config import BaseConfig, getConfigFromDict, getDictFromConfig
 from utils.models import ProgressiveGAN
@@ -884,29 +885,28 @@ class ProgressiveGANTrainer(object):
         #     print('current_learning_rate %f' % (current_learning_rate,))
         #     set_learning_rate(current_learning_rate) 
             
-            for step, (image) in enumerate(train_data):
-                overall_steps += 1
-                current_batch_size = image.shape[0]
-                # alpha_tensor = tf.constant(np.repeat(alpha, current_batch_size).reshape(current_batch_size, 1), dtype=tf.float32)
-                # Train step
-                self.discriminator_train_step(image, None, verbose=False)
-                self.generator_train_step(None)
+            start = time.time()
 
+            for step, (real_image_batch) in enumerate(dataset):
+                self.checkpoint.step.assign_add(1)
+                self.overall_steps += 1
 
-                # WGAN_GP_train_d_step(model.Generator, model.Discriminator, image, alpha_tensor,
-                #                     batch_size=tf.constant(current_batch_size, dtype=tf.int64), step=tf.constant(overall_steps, dtype=tf.int64))
-                # WGAN_GP_train_g_step(model.Generator, model.Discriminator, alpha_tensor,
-                #                     batch_size=tf.constant(current_batch_size, dtype=tf.int64), step=tf.constant(overall_steps, dtype=tf.int64))
-                
+                noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
+                # self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
+                # self.generator_train_steps[str(resolution)](noise, verbose=verbose)
+
+                self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
+                self.generator_train_step(noise, verbose=verbose)
                 
                 # update alpha
-                self.alpha = min(1., self.alpha + alpha_increment)
-                
-                if step % 10 == 0:
-                    print ('.', end='')
+                if resolution > 4:
+                    self.alpha = min(1., self.alpha + self.resolution_alpha_increment)
+
+                if real_image_batch.shape[0] < self.resolution_batch_size:
+                    raise ValueError('Image batch shape less than resolution batch size')
             
             # Clear jupyter notebook cell output
-            # clear_output(wait=True)
+            clear_output(wait=True)
             # Using a consistent image (sample_X) so that the progress of the model is clearly visible.
             self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
