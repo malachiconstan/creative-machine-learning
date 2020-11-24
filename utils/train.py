@@ -884,7 +884,13 @@ class ProgressiveGANTrainer(object):
         #     current_learning_rate = learning_rate_decay(current_learning_rate)
         #     print('current_learning_rate %f' % (current_learning_rate,))
         #     set_learning_rate(current_learning_rate) 
-            verbose = False
+            verbose=True
+
+            if verbose:
+                print('Start of epoch %d' % (epoch,))
+                print('Current alpha: %f' % (self.alpha,))
+                print('Current resolution: {} * {}'.format(resolution, resolution))
+
             start = time.time()
 
             for step, (real_image_batch) in enumerate(dataset):
@@ -905,29 +911,49 @@ class ProgressiveGANTrainer(object):
                 if real_image_batch.shape[0] < self.resolution_batch_size:
                     raise ValueError('Image batch shape less than resolution batch size')
             
-            # Clear jupyter notebook cell output
-            # clear_output(wait=True)
-            # Using a consistent image (sample_X) so that the progress of the model is clearly visible.
-            self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
-            noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
-            predicted_image = self.model.Generator((noise,alpha_tensor), training=False)
-            predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
-            with self.gen_summary_writer.as_default():
-                tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=overall_steps)
+            # Write logged losses
+            if epoch % self.loss_iter_evaluation == 0:
+                alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+                
+                # Log alpha
+                self.metrics['alpha'](self.alpha)
 
-            # Take a look at real images
-            real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
-            with self.dis_summary_writer.as_default():
-                tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=overall_steps)
-            
-            if epoch % 10 == 0:
-                self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
-                self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
-                print ('Saving model for epoch {}'.format(epoch))
-            
-            print ('Time taken for epoch {} is {} sec\n'.format(epoch,
-                                                            time.time()-start))
+                with self.gen_summary_writer.as_default():
+                    tf.summary.scalar('generator_wasserstein_loss', self.metrics['generator_wasserstein_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('generator_loss', self.metrics['generator_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('alpha', self.metrics['alpha'].result(), step=self.overall_steps)
+
+                with self.dis_summary_writer.as_default():
+                    tf.summary.scalar('discriminator_wasserstein_loss_real', self.metrics['discriminator_wasserstein_loss_real'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_wasserstein_loss_fake', self.metrics['discriminator_wasserstein_loss_fake'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_wasserstein_gradient_penalty', self.metrics['discriminator_wasserstein_gradient_penalty'].result(), step=self.overall_steps)
+                    # tf.summary.scalar('discriminator_epsilon_loss', self.metrics['discriminator_epsilon_loss'].result(), step=self.overall_steps)
+                    tf.summary.scalar('discriminator_loss', self.metrics['discriminator_loss'].result(), step=self.overall_steps)
+
+                # Save Images
+                predicted_image = self.model.Generator((noise,alpha_tensor), training=False)
+                predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
+                with self.gen_summary_writer.as_default():
+                    tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=self.overall_steps)
+
+                # Take a look at real images
+                real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+                with self.dis_summary_writer.as_default():
+                    tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=self.overall_steps)
+
+                self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+
+            # Save Checkpoint
+            if epoch % self.save_iter == 0:
+                self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+
+            # Reset Losses
+            for k in self.metrics:
+                self.metrics[k].reset_states()
+
+            self.checkpoint.epoch.assign(epoch)
+
+            print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}')
             
             
             # Train next resolution
