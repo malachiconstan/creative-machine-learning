@@ -848,7 +848,7 @@ class ProgressiveGANTrainer(object):
 
         return True
 
-    def train_special(self):
+    def train_special(self, total_epochs):
         image_size = self.start_resolution
         def calculate_batch_size(image_size):
             if image_size < 64:
@@ -862,10 +862,11 @@ class ProgressiveGANTrainer(object):
             else:
                 return 3
         # current_learning_rate = LR
+        self.resolution_batch_size = calculate_batch_size(image_size)
         train_data = get_image_dataset(self.datapath,
                                             img_height=image_size,
                                             img_width=image_size,
-                                            batch_size=calculate_batch_size(image_size),
+                                            batch_size=self.resolution_batch_size,
                                             normalize=True)
         training_steps = np.ceil(len(train_data) / 16)
         switch_res_every_n_epoch = 40
@@ -873,7 +874,7 @@ class ProgressiveGANTrainer(object):
         alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
         alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  alpha_increment)
         overall_steps = 0
-        for epoch in range(self.start_epoch, self.epochs + 1):
+        for epoch in range(self.start_epoch, total_epochs + 1):
             start = time.time()
             print('Start of epoch %d' % (epoch,))
             print('Current alpha: %f' % (alpha,))
@@ -908,7 +909,7 @@ class ProgressiveGANTrainer(object):
             # clear_output(wait=True)
             # Using a consistent image (sample_X) so that the progress of the model is clearly visible.
             self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
-            noise = tf.random.normal((calculate_batch_size(image_size), self.latent_dim))
+            noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
             alpha_tensor = tf.constant(np.repeat(alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
             predicted_image = self.model.Generator((noise,alpha_tensor), training=False)
             predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
@@ -949,8 +950,8 @@ class ProgressiveGANTrainer(object):
                 print('Making {} * {} dataset'.format(image_size, image_size))
                 # batch_size = calculate_batch_size(image_size)
                 # preprocess_function = partial(preprocess_image, target_size=image_size)
-                train_data = get_image_dataset('data/google_pavilion/*.jpeg',image_size, image_size, batch_size=calculate_batch_size(image_size))
-                training_steps = np.ceil(len(train_data) / calculate_batch_size(image_size))
+                train_data = get_image_dataset('data/google_pavilion/*.jpeg',image_size, image_size, batch_size=self.resolution_batch_size)
+                training_steps = np.ceil(len(train_data) / self.resolution_batch_size)
                 alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
                 print('start training {} * {} model'.format(image_size, image_size))
     
