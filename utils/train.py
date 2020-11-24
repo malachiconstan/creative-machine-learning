@@ -852,7 +852,7 @@ class ProgressiveGANTrainer(object):
     def train_special(self, total_epochs):
         self.colab = False
         self.train_start_time = time.time()
-        self.g_drive_path = g_drive_path
+        self.g_drive_path = '/content/drive/My Drive/CML'
         resolution = self.start_resolution
         def calculate_batch_size(image_size):
             if image_size < 64:
