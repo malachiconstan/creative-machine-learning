@@ -939,6 +939,7 @@ class ProgressiveGANTrainer(object):
                 alpha = 0
                 previous_image_size = int(image_size)
                 image_size = int(image_size * 2)
+                self.resolution_batch_size = calculate_batch_size(image_size)
                 if image_size > 512:
                     print('Resolution reach 512x512, finish training')
                     break
