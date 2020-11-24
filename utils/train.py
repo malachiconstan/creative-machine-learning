@@ -787,11 +787,11 @@ class ProgressiveGANTrainer(object):
             self.overall_steps += 1
 
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            # self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
-            # self.generator_train_steps[str(resolution)](noise, verbose=verbose)
+            self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
+            self.generator_train_steps[str(resolution)](noise, verbose=verbose)
 
-            self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
-            self.generator_train_step(noise, verbose=verbose)
+            # self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
+            # self.generator_train_step(noise, verbose=verbose)
             
             # update alpha
             if resolution > 4:
@@ -877,6 +877,8 @@ class ProgressiveGANTrainer(object):
         # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
         self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
         self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  self.resolution_alpha_increment)
+        self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
+        self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
         for epoch in range(self.start_epoch, total_epochs + 1):
             self.train_epoch(dataset, resolution, epoch, True)
             
