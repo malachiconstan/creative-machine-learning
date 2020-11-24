@@ -877,7 +877,6 @@ class ProgressiveGANTrainer(object):
         # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
         self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
         self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  self.resolution_alpha_increment)
-        overall_steps = 0
         for epoch in range(self.start_epoch, total_epochs + 1):
             self.train_epoch(dataset, resolution, epoch, True)
             
