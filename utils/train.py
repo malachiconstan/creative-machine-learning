@@ -831,7 +831,7 @@ class ProgressiveGANTrainer(object):
             self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
             self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
 
-            training_steps = np.ceil(len(train_dataset) / self.batch_size)
+            training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
             self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
@@ -865,60 +865,68 @@ class ProgressiveGANTrainer(object):
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
 
+        all_resolutions = [self.start_resolution]
         resolution = self.start_resolution
-        def calculate_batch_size(image_size):
-            if image_size < 64:
-                return 16
-            elif image_size < 128:
-                return 12
-            elif image_size == 128:
-                return 8
-            elif image_size == 256:
-                return 4
-            else:
-                return 3
-        # current_learning_rate = LR
-        self.resolution_batch_size = calculate_batch_size(resolution)
-        dataset = get_image_dataset(self.datapath,
-                                            img_height=resolution,
-                                            img_width=resolution,
-                                            batch_size=self.resolution_batch_size,
-                                            normalize=True)
-        training_steps = np.ceil(len(dataset) / 16)
-        switch_res_every_n_epoch = 40
-        # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
-        self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
-        self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  self.resolution_alpha_increment)
-        self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
-        self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
-        for epoch in range(self.start_epoch, self.epochs + 1):
-            self.train_epoch(dataset, resolution, epoch, verbose=verbose)
+        while resolution < self.stop_resolution:
+            resolution *= 2
+            all_resolutions.append(resolution)
+        
+
+        for resolution in all_resolutions:
+            print(f'Size {resolution}x{resolution} training begins')
+        
+            # Define specific paths
+            self.checkpoint.resolution.assign(resolution)
+            self.resolution_batch_size = self.calculate_batch_size(resolution)
+
+            train_dataset = get_image_dataset(self.datapath,
+                                        img_height=resolution,
+                                        img_width=resolution,
+                                        batch_size=self.resolution_batch_size,
+                                        normalize=True)
+
+            if verbose:
+                print(f'Dataset for resolution {resolution}x{resolution} obtained')
+                print('Dataset Length: ', len(train_dataset))
+
+            training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
+
+            self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
+            self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
+
+            # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
+            self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
+            self.alpha = min(1., (self.epochs - 1) % self.epochs * training_steps *  self.resolution_alpha_increment)
+            
+            assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
+            for epoch in range(self.start_epoch, self.epochs + 1):
+                self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
             
             # Train next resolution
-            if epoch % switch_res_every_n_epoch == 0:
-                print('saving {} * {} model'.format(resolution, resolution))
-                self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
-                self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
-                # Reset alpha
-                self.alpha = 0
-                previous_image_size = int(resolution)
-                resolution = int(resolution * 2)
-                self.resolution_batch_size = calculate_batch_size(resolution)
-                if resolution > 512:
-                    print('Resolution reach 512x512, finish training')
-                    break
-                print('creating {} * {} model'.format(resolution, resolution))
-                self.model.double_resolution()
-                self.model.Generator.load_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
-                self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
+            # if epoch % switch_res_every_n_epoch == 0:
+            #     print('saving {} * {} model'.format(resolution, resolution))
+            #     self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
+            #     self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
+            #     # Reset alpha
+            #     self.alpha = 0
+            #     previous_image_size = int(resolution)
+            #     resolution = int(resolution * 2)
+            #     self.resolution_batch_size = calculate_batch_size(resolution)
+            #     if resolution > 512:
+            #         print('Resolution reach 512x512, finish training')
+            #         break
+            #     print('creating {} * {} model'.format(resolution, resolution))
+            #     self.model.double_resolution()
+            #     self.model.Generator.load_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
+            #     self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
                 
-                print('Making {} * {} dataset'.format(resolution, resolution))
-                # batch_size = calculate_batch_size(image_size)
-                # preprocess_function = partial(preprocess_image, target_size=image_size)
-                dataset = get_image_dataset('data/google_pavilion/*.jpeg',resolution, resolution, batch_size=self.resolution_batch_size)
-                training_steps = np.ceil(len(dataset) / self.resolution_batch_size)
-                self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
-                print('start training {} * {} model'.format(resolution, resolution))
+            #     print('Making {} * {} dataset'.format(resolution, resolution))
+            #     # batch_size = calculate_batch_size(image_size)
+            #     # preprocess_function = partial(preprocess_image, target_size=image_size)
+            #     dataset = get_image_dataset('data/google_pavilion/*.jpeg',resolution, resolution, batch_size=self.resolution_batch_size)
+            #     training_steps = np.ceil(len(dataset) / self.resolution_batch_size)
+            #     self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
+            #     print('start training {} * {} model'.format(resolution, resolution))
     
     # @tf.function
     # def discriminator_train_step(self, real_image, noise_, verbose):
