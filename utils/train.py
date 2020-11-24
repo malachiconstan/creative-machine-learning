@@ -904,12 +904,12 @@ class ProgressiveGANTrainer(object):
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
 
-            self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
+            # self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
             
-            # Add scale
-            if resolution != self.stop_resolution:
-                self.model.double_resolution()
-                self.load_weights(resolution)
+            # # Add scale
+            # if resolution != self.stop_resolution:
+            #     self.model.double_resolution()
+            #     self.load_weights(resolution)
 
         return True
             
