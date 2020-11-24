@@ -888,6 +888,7 @@ class ProgressiveGANTrainer(object):
             if verbose:
                 print(f'Dataset for resolution {resolution}x{resolution} obtained')
                 print('Dataset Length: ', len(train_dataset))
+                print('Batch Size: ',self.resolution_batch_size)
 
             training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
 
