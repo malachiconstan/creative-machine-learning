@@ -787,11 +787,11 @@ class ProgressiveGANTrainer(object):
             self.overall_steps += 1
 
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
-            self.generator_train_steps[str(resolution)](noise, verbose=verbose)
+            # self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
+            # self.generator_train_steps[str(resolution)](noise, verbose=verbose)
 
-            # self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
-            # self.generator_train_step(noise, verbose=verbose)
+            self.discriminator_train_step(real_image_batch, noise, verbose=verbose)
+            self.generator_train_step(noise, verbose=verbose)
             
             # update alpha
             if resolution > 4:
