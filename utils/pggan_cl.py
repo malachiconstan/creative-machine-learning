@@ -23,7 +23,7 @@ from tensorflow.keras.losses import BinaryCrossentropy
 from tensorflow.keras.utils import to_categorical, plot_model
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-
+NOISE_DIM = 512
 class EqualizeLearningRate(tf.keras.layers.Wrapper):
     """
     Reference from WeightNormalization implementation of TF Addons
@@ -276,11 +276,11 @@ def build_8x8_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
@@ -315,11 +315,11 @@ def build_16x16_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
@@ -356,11 +356,11 @@ def build_32x32_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
@@ -399,11 +399,11 @@ def build_64x64_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
@@ -444,11 +444,11 @@ def build_128x128_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
@@ -491,11 +491,11 @@ def build_256x256_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
@@ -540,11 +540,11 @@ def build_512x512_generator(noise_dim=NOISE_DIM):
     ########################
     # Left branch in the paper
     ########################
-    l_x = Multiply()([1 - alpha, l_x])
+    l_x = Multiply()([alpha, l_x])
     ########################
     # Right branch in the paper
     ########################
-    r_x = Multiply()([alpha, r_x])
+    r_x = Multiply()([1-alpha, r_x])
     combined = Add()([l_x, r_x])
     
     model = Model(inputs=[inputs, alpha], outputs=combined)
