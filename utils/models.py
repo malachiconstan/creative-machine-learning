@@ -709,12 +709,14 @@ class ProgressiveGAN(object):
                 kernel_initializer='he_normal',
                 output_activation = tf.keras.activations.tanh,
                 graph_mode=True,
+                original=True,
                 **kwargs):
     
         if not 'config' in vars(self):
             self.config = edict()
 
         self.graph_mode = graph_mode
+        self.original = original
         
         self.config.resolution = resolution
         self.config.latent_dim = latent_dim
@@ -724,20 +726,22 @@ class ProgressiveGAN(object):
 
         if self.graph_mode:
             print('Creating Functional Model')
-            self.Generator, self.Discriminator = model_builder(self.config.resolution)
-#             self.Discriminator = pg_discriminator(
-#                 self.config.resolution,
-#                 self.config.leaky_relu_leak,
-#                 self.config.kernel_initializer
-#             )
+            if original:
+                self.Generator, self.Discriminator = model_builder(self.config.resolution)
+            else:
+                self.Discriminator = pg_discriminator(
+                    self.config.resolution,
+                    self.config.leaky_relu_leak,
+                    self.config.kernel_initializer
+                )
 
-#             self.Generator = pg_generator(
-#                 self.config.resolution,
-#                 self.config.latent_dim,
-#                 self.config.leaky_relu_leak,
-#                 self.config.kernel_initializer,
-#                 self.config.output_activation
-#             )
+                self.Generator = pg_generator(
+                    self.config.resolution,
+                    self.config.latent_dim,
+                    self.config.leaky_relu_leak,
+                    self.config.kernel_initializer,
+                    self.config.output_activation
+                )
 
         else:
             print('Creating Eager Model')
@@ -780,20 +784,24 @@ class ProgressiveGAN(object):
     def double_resolution(self):
         self.config.resolution *= 2
         if self.graph_mode:
-            self.Generator, self.Discriminator = model_builder(self.config.resolution)
-#             self.Discriminator = pg_discriminator(
-#                 self.config.resolution,
-#                 self.config.leaky_relu_leak,
-#                 self.config.kernel_initializer
-#             )
+            if self.original:
+                self.Generator, self.Discriminator = model_builder(self.config.resolution)
+                print('Using original model')
+            else:
+                self.Discriminator = pg_discriminator(
+                    self.config.resolution,
+                    self.config.leaky_relu_leak,
+                    self.config.kernel_initializer
+                )
 
-#             self.Generator = pg_generator(
-#                 self.config.resolution,
-#                 self.config.latent_dim,
-#                 self.config.leaky_relu_leak,
-#                 self.config.kernel_initializer,
-#                 self.config.output_activation
-#             )
+                self.Generator = pg_generator(
+                    self.config.resolution,
+                    self.config.latent_dim,
+                    self.config.leaky_relu_leak,
+                    self.config.kernel_initializer,
+                    self.config.output_activation
+                )
+                print('Using new model')
             print(f'Resolution Doubled to {self.config.resolution}. New Model Built. Load back weights')
         else:
             self.Discriminator.double_resolution()
