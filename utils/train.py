@@ -872,8 +872,8 @@ class ProgressiveGANTrainer(object):
         training_steps = np.ceil(len(dataset) / 16)
         switch_res_every_n_epoch = 40
         # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
-        alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
-        self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  alpha_increment)
+        self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
+        self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  self.resolution_alpha_increment)
         overall_steps = 0
         for epoch in range(self.start_epoch, total_epochs + 1):
             start = time.time()
