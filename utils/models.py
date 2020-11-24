@@ -786,6 +786,7 @@ class ProgressiveGAN(object):
         if self.graph_mode:
             if self.original:
                 self.Generator, self.Discriminator = model_builder(self.config.resolution)
+                print('Using original model')
             else:
                 self.Discriminator = pg_discriminator(
                     self.config.resolution,
@@ -800,6 +801,7 @@ class ProgressiveGAN(object):
                     self.config.kernel_initializer,
                     self.config.output_activation
                 )
+                print('Using new model')
             print(f'Resolution Doubled to {self.config.resolution}. New Model Built. Load back weights')
         else:
             self.Discriminator.double_resolution()
