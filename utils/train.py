@@ -917,7 +917,7 @@ class ProgressiveGANTrainer(object):
                 tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=overall_steps)
 
             # Take a look at real images
-            real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+            real_image_batch = image[:, :, :, :]* 0.5 + 0.5
             with self.dis_summary_writer.as_default():
                 tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=overall_steps)
             
