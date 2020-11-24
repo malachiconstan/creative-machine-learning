@@ -872,12 +872,12 @@ class ProgressiveGANTrainer(object):
         switch_res_every_n_epoch = 40
         # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
         alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
-        alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  alpha_increment)
+        self.alpha = min(1., (self.epochs - 1) % switch_res_every_n_epoch * training_steps *  alpha_increment)
         overall_steps = 0
         for epoch in range(self.start_epoch, total_epochs + 1):
             start = time.time()
             print('Start of epoch %d' % (epoch,))
-            print('Current alpha: %f' % (alpha,))
+            print('Current alpha: %f' % (self.alpha,))
             print('Current resolution: {} * {}'.format(image_size, image_size))
             # Using learning rate decay
         #     current_learning_rate = learning_rate_decay(current_learning_rate)
@@ -900,7 +900,7 @@ class ProgressiveGANTrainer(object):
                 
                 
                 # update alpha
-                alpha = min(1., alpha + alpha_increment)
+                self.alpha = min(1., self.alpha + alpha_increment)
                 
                 if step % 10 == 0:
                     print ('.', end='')
@@ -910,7 +910,7 @@ class ProgressiveGANTrainer(object):
             # Using a consistent image (sample_X) so that the progress of the model is clearly visible.
             self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
-            alpha_tensor = tf.constant(np.repeat(alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+            alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
             predicted_image = self.model.Generator((noise,alpha_tensor), training=False)
             predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
             with self.gen_summary_writer.as_default():
@@ -936,7 +936,7 @@ class ProgressiveGANTrainer(object):
                 self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(image_size, image_size)))
                 self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(image_size, image_size)))
                 # Reset alpha
-                alpha = 0
+                self.alpha = 0
                 previous_image_size = int(image_size)
                 image_size = int(image_size * 2)
                 self.resolution_batch_size = calculate_batch_size(image_size)
