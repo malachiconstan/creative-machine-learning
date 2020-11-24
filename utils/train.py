@@ -908,6 +908,17 @@ class ProgressiveGANTrainer(object):
             # clear_output(wait=True)
             # Using a consistent image (sample_X) so that the progress of the model is clearly visible.
             self.generate_and_save_images(epoch, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+            noise = tf.random.normal((calculate_batch_size(image_size), self.latent_dim))
+            alpha_tensor = tf.constant(np.repeat(alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
+            predicted_image = self.model.Generator((noise,alpha_tensor), training=False)
+            predicted_image = predicted_image[:, :, :, :]* 0.5 + 0.5
+            with self.gen_summary_writer.as_default():
+                tf.summary.image('Generated Images', predicted_image, max_outputs=16, step=overall_steps)
+
+            # Take a look at real images
+            real_image_batch = real_image_batch[:, :, :, :]* 0.5 + 0.5
+            with self.dis_summary_writer.as_default():
+                tf.summary.image('Real Images', real_image_batch, max_outputs=5, step=overall_steps)
             
             if epoch % 10 == 0:
                 self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(image_size, image_size)))
