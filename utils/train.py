@@ -847,7 +847,7 @@ class ProgressiveGANTrainer(object):
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
             if self.hard_start:
-                self.alpha = 1
+                self.alpha = 0.9
             else:
                 self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
             assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
