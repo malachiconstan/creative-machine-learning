@@ -785,7 +785,7 @@ class ProgressiveGANTrainer(object):
 
         self.checkpoint.epoch.assign(epoch)
 
-        print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}. Alpha = {self.alpha:5.f}')
+        print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}. Alpha = {self.alpha:.5f}')
 
         if verbose:
             print('Completed')
