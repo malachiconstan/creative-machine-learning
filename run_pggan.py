@@ -61,7 +61,7 @@ if __name__ == '__main__':
     config = edict()
     config.datapath = os.path.join(os.getcwd(),'data','google_pavilion','*.jpeg')
     config.latent_dim = 512
-    config.resolution = 4
+    config.resolution = 8
     config.stop_resolution = 128
     config.start_epoch = 1
     config.epochs = 320
@@ -69,6 +69,7 @@ if __name__ == '__main__':
     config.leaky_relu_leak = 0.2
     config.kernel_initializer = 'he_normal'
     config.output_activation = tf.keras.activations.tanh
+    config.hard_start = True
 
     generator_optimizer = keras.optimizers.Adam(opt.glr ,beta_1=opt.beta1, beta_2=opt.beta2)
     discriminator_optimizer = keras.optimizers.Adam(opt.dlr ,beta_1=opt.beta1, beta_2=opt.beta2)
