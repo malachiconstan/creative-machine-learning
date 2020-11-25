@@ -770,8 +770,6 @@ class ProgressiveGAN(object):
         """
         if value < 0 or value > 1:
             raise ValueError("alpha must be in [0,1]")
-        
-        print("Changing alpha to %.3f" % value)
 
         if not self.graph_mode:
             self.Discriminator.alpha = value

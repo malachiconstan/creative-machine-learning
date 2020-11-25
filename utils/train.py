@@ -564,7 +564,7 @@ class ProgressiveGANTrainer(object):
         self.dis_summary_writer = tf.summary.create_file_writer(self.dis_log_dir)
 
         # Test out the Generator
-        self.generate_and_save_images(0, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
+        # self.generate_and_save_images(0, figure_size=(6,6), subplot=(3,3), save=True, is_flatten=False)
 
         # Create many tf functions
         # res = self.start_resolution
@@ -591,7 +591,7 @@ class ProgressiveGANTrainer(object):
     def generate_and_save_images(self, epoch, figure_size=(12,6), subplot=(3,6), save=True, is_flatten=False):
         # Test input is a list include noise and label
         sample_noise = tf.random.normal((9, self.latent_dim), seed=0)
-        alpha_tensor = tf.constant(np.repeat(1, 9).reshape(9, 1), dtype=tf.float32)
+        alpha_tensor = tf.constant(np.repeat(self.alpha, 9).reshape(9, 1), dtype=tf.float32)
         predictions = self.model.Generator((sample_noise, alpha_tensor))
         fig = plt.figure(figsize=figure_size)
         for i in range(predictions.shape[0]):
@@ -785,7 +785,7 @@ class ProgressiveGANTrainer(object):
 
         self.checkpoint.epoch.assign(epoch)
 
-        print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}')
+        print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}. Alpha = {self.alpha:5.f}')
 
         if verbose:
             print('Completed')
@@ -831,7 +831,7 @@ class ProgressiveGANTrainer(object):
             self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
             self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
 
-            training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
+            training_steps = len(train_dataset)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
             self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
@@ -850,144 +850,6 @@ class ProgressiveGANTrainer(object):
             resolution *= 2
 
         return True
-
-    def train_special(self, restore=False, colab=False, load_from_g_drive=False, verbose=False, g_drive_path = '/content/drive/My Drive/CML'):
-        """
-        Launch the training. This one will stop if a divergent behavior is
-        detected.
-        Returns:
-            - True if the training completed
-            - False if the training was interrupted due to a divergent behavior
-        """
-        self.colab = colab
-        self.train_start_time = time.time()
-        self.g_drive_path = g_drive_path
-
-        if restore:
-            self.load_saved_training(load_from_g_drive=load_from_g_drive)
-
-        all_resolutions = [self.start_resolution]
-        resolution = self.start_resolution
-        while resolution < self.stop_resolution:
-            resolution *= 2
-            all_resolutions.append(resolution)
-        
-
-        for resolution in all_resolutions:
-            print(f'Size {resolution}x{resolution} training begins')
-        
-            # Define specific paths
-            self.checkpoint.resolution.assign(resolution)
-            self.resolution_batch_size = self.calculate_batch_size(resolution)
-
-            train_dataset = get_image_dataset(self.datapath,
-                                        img_height=resolution,
-                                        img_width=resolution,
-                                        batch_size=self.resolution_batch_size,
-                                        normalize=True)
-
-            training_steps = np.ceil(len(train_dataset) / self.resolution_batch_size)
-
-            if verbose:
-                print(f'Dataset for resolution {resolution}x{resolution} obtained')
-                print('Dataset Length: ', len(train_dataset))
-                print('Batch Size: ',self.resolution_batch_size)
-                print('Training Steps: ',training_steps)
-
-            self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
-            self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
-
-            # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
-            self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
-            self.alpha = 1 #min(1., (self.start_epoch - 1) % self.epochs * training_steps *  self.resolution_alpha_increment)
-            
-            assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
-            for epoch in range(self.start_epoch, self.epochs + 1):
-                self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
-
-            # self.save_check_point(resolution, verbose=True, save_to_gdrive=self.colab, g_drive_path = self.g_drive_path)
-            
-            # # Add scale
-            # if resolution != self.stop_resolution:
-            #     self.model.double_resolution()
-            #     self.load_weights(resolution)
-
-        return True
-            
-            # Train next resolution
-            # if epoch % switch_res_every_n_epoch == 0:
-            #     print('saving {} * {} model'.format(resolution, resolution))
-            #     self.model.Generator.save_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(resolution, resolution)))
-            #     self.model.Discriminator.save_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(resolution, resolution)))
-            #     # Reset alpha
-            #     self.alpha = 0
-            #     previous_image_size = int(resolution)
-            #     resolution = int(resolution * 2)
-            #     self.resolution_batch_size = calculate_batch_size(resolution)
-            #     if resolution > 512:
-            #         print('Resolution reach 512x512, finish training')
-            #         break
-            #     print('creating {} * {} model'.format(resolution, resolution))
-            #     self.model.double_resolution()
-            #     self.model.Generator.load_weights(os.path.join(self.model_save_dir, '{}x{}_generator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
-            #     self.model.Discriminator.load_weights(os.path.join(self.model_save_dir, '{}x{}_discriminator.h5'.format(previous_image_size, previous_image_size)), by_name=True)
-                
-            #     print('Making {} * {} dataset'.format(resolution, resolution))
-            #     # batch_size = calculate_batch_size(image_size)
-            #     # preprocess_function = partial(preprocess_image, target_size=image_size)
-            #     dataset = get_image_dataset('data/google_pavilion/*.jpeg',resolution, resolution, batch_size=self.resolution_batch_size)
-            #     training_steps = np.ceil(len(dataset) / self.resolution_batch_size)
-            #     self.resolution_alpha_increment = 1. / (switch_res_every_n_epoch / 2 * training_steps)
-            #     print('start training {} * {} model'.format(resolution, resolution))
-    
-    # @tf.function
-    # def discriminator_train_step(self, real_image, noise_, verbose):
-    #     noise = tf.random.normal([self.resolution_batch_size, self.latent_dim])
-    #     epsilon = tf.random.uniform(shape=[self.resolution_batch_size, 1, 1, 1], minval=0, maxval=1)
-    #     alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
-    #     ###################################
-    #     # Train D
-    #     ###################################
-    #     with tf.GradientTape(persistent=True) as d_tape:
-    #         with tf.GradientTape() as gp_tape:
-    #             fake_image = self.model.Generator([noise, alpha_tensor], training=True)
-    #             fake_image_mixed = epsilon * tf.dtypes.cast(real_image, tf.float32) + ((1 - epsilon) * fake_image)
-    #             fake_mixed_pred = self.model.Discriminator([fake_image_mixed, alpha_tensor], training=True)
-
-    #         # Compute gradient penalty
-    #         grads = gp_tape.gradient(fake_mixed_pred, fake_image_mixed)
-    #         grad_norms = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
-    #         gradient_penalty = tf.reduce_mean(tf.square(grad_norms - 1))
-
-    #         fake_pred = self.model.Discriminator([fake_image, alpha_tensor], training=True)
-    #         real_pred = self.model.Discriminator([real_image, alpha_tensor], training=True)
-
-    #         D_loss = tf.reduce_mean(fake_pred) - tf.reduce_mean(real_pred) + self.config.lambdaGP* gradient_penalty
-            
-    #         # Log losses
-    #         self.metrics['discriminator_loss'](D_loss)
-    #     # Calculate the gradients for discriminator
-    #     D_gradients = d_tape.gradient(D_loss,self.model.Discriminator.trainable_variables)
-    #     # Apply the gradients to the optimizer
-    #     self.discriminator_optimizer.apply_gradients(zip(D_gradients,self.model.Discriminator.trainable_variables))
-        
-    # @tf.function
-    # def generator_train_step(self, noise_, verbose=False, return_generated_images=False):
-    #     noise = tf.random.normal([self.resolution_batch_size, self.latent_dim])
-    #     alpha_tensor = tf.constant(np.repeat(self.alpha, self.resolution_batch_size).reshape(self.resolution_batch_size, 1), dtype=tf.float32)
-    #     ###################################
-    #     # Train G
-    #     ###################################
-    #     with tf.GradientTape() as g_tape:
-    #         fake_image = self.model.Generator([noise, alpha_tensor], training=True)
-    #         fake_pred = self.model.Discriminator([fake_image, alpha_tensor], training=True)
-    #         G_loss = -tf.reduce_mean(fake_pred)
-        
-    #     self.metrics['generator_loss'](G_loss)
-    #     # Calculate the gradients for discriminator
-    #     G_gradients = g_tape.gradient(G_loss,self.model.Generator.trainable_variables)
-    #     # Apply the gradients to the optimizer
-    #     self.generator_optimizer.apply_gradients(zip(G_gradients,self.model.Generator.trainable_variables))
 
     @tf.function
     def discriminator_train_step(self, real_images, noise, verbose=False):
