@@ -528,6 +528,7 @@ class ProgressiveGANTrainer(object):
         self.batch_size = self.calculate_batch_size(config.resolution)
         self.latent_dim = config.latent_dim
         self.overall_steps = 0
+        self.hard_start = config.hard_start
 
         self.initialise_model()
 
@@ -737,7 +738,7 @@ class ProgressiveGANTrainer(object):
             # self.generator_train_step(noise, verbose=verbose)
             
             # update alpha
-            if resolution > 4:
+            if resolution > 4 and self.hard_start_steps <= 0:
                 self.alpha = min(1., self.alpha + self.resolution_alpha_increment)
 
             if real_image_batch.shape[0] < self.resolution_batch_size:
@@ -787,6 +788,14 @@ class ProgressiveGANTrainer(object):
 
         print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}. Alpha = {self.alpha:.5f}')
 
+        if self.hard_start:
+            if self.hard_start_steps > 0:
+                self.hard_start_steps -= 1
+                print('Hard start steps left: ', self.hard_start_steps)
+            if self.hard_start_steps == 0:
+                self.hard_start_steps -= 1
+                self.alpha = min(1., (self.start_epoch - 1) % self.epochs * len(dataset) * self.resolution_alpha_increment)
+
         if verbose:
             print('Completed')
 
@@ -831,11 +840,16 @@ class ProgressiveGANTrainer(object):
             self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
             self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
 
+            if self.hard_start:
+                self.hard_start_steps = 10
+
             training_steps = len(train_dataset)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
-            self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
-
+            if self.hard_start:
+                self.alpha = 1
+            else:
+                self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
             assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
             for epoch in range(self.start_epoch, self.epochs + 1):
                 self.train_epoch(train_dataset, resolution, epoch, verbose=verbose)
