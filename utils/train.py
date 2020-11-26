@@ -816,6 +816,7 @@ class ProgressiveGANTrainer(object):
 
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
+            self.loaded = True
 
         resolution = self.start_resolution
         while resolution <= self.stop_resolution:
@@ -846,8 +847,8 @@ class ProgressiveGANTrainer(object):
             training_steps = len(train_dataset)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
             self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
-            if self.hard_start:
-                self.alpha = 0.9
+            if self.hard_start and not self.loaded:
+                self.alpha = 0.5
             else:
                 self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
             assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
@@ -862,6 +863,7 @@ class ProgressiveGANTrainer(object):
                 self.load_weights(resolution)
                 self.start_epoch = 1
             resolution *= 2
+            self.loaded = False
 
         return True
 
