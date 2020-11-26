@@ -813,6 +813,7 @@ class ProgressiveGANTrainer(object):
         self.colab = colab
         self.train_start_time = time.time()
         self.g_drive_path = g_drive_path
+        self.loaded = False
 
         if restore:
             self.load_saved_training(load_from_g_drive=load_from_g_drive)
