@@ -727,8 +727,8 @@ class ProgressiveGANTrainer(object):
         start = time.time()
 
         for step, (real_image_batch) in enumerate(dataset):
-            self.checkpoint.step.assign_add(1)
             self.overall_steps += 1
+            self.checkpoint.step.assign(self.overall_steps)
 
             noise = tf.random.normal((self.resolution_batch_size, self.latent_dim))
             self.discriminator_train_steps[str(resolution)](real_image_batch, noise, verbose=verbose)
