@@ -788,7 +788,7 @@ class ProgressiveGANTrainer(object):
 
         print(f'Time for epoch {epoch} is {time.time()-start:.3f} sec. Training time: {time.time()-self.train_start_time:.3f}. Alpha = {self.alpha:.5f}')
 
-        if self.hard_start and not self.loaded:
+        if self.hard_start:
             if self.hard_start_steps > 0:
                 self.hard_start_steps -= 1
                 print('Hard start steps left: ', self.hard_start_steps)
@@ -850,7 +850,7 @@ class ProgressiveGANTrainer(object):
                 self.hard_start_steps = 10
                 self.alpha = 0.5
             else:
-                self.hard_start_steps = 0
+                self.hard_start_steps = -1
                 self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
                 
             assert self.start_epoch <= self.epochs, f'Start epochs {self.start_epoch} should be less than epochs: {self.epochs}'
