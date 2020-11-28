@@ -237,7 +237,7 @@ class ClassifierTrainer(object):
             ):
 
         self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
-        file_paths = glob(os.path.join(infer_datadir,'*.jpeg'))
+        file_paths = glob(os.path.join(infer_datadir,'*.jpeg')) + glob(os.path.join(infer_datadir,'*.jpg'))
         test_pred = tf.stack([process_path(file,img_height,img_width,False,False) for file in file_paths])
 
         preds = tf.nn.softmax(self.model(test_pred),axis=1).numpy()
