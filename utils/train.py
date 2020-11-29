@@ -51,20 +51,6 @@ def train_step(images, generator, discriminator, generator_optimizer, discrimina
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
 
-# def generate_and_save_images(model, epoch, test_input, output_dir):
-#     # Notice `training` is set to False.
-#     # This is so all layers run in inference mode (batchnorm).
-#     predictions = model(test_input, training=False)
-#     fig = plt.figure(figsize=(10,10))
-
-#     for i in range(predictions.shape[0]):
-#         plt.subplot(4, 4, i+1)
-#         plt.imshow(predictions[i, :, :, :]* 0.5 + 0.5) # map from range(-1,1) to range(0,1)
-
-#         plt.axis('off')
-#     plt.savefig(os.path.join(output_dir,f'image_at_epoch_{epoch:04d}.png'))
-#     plt.close()
-
 def generate_and_save_images(model, epoch, test_input, file_writer):
     # Notice `training` is set to False.
     # This is so all layers run in inference mode (batchnorm).
@@ -174,6 +160,9 @@ def train(dataset,
     generate_and_save_images(generator,epoch,seed,gen_summary_writer)
 
 class ClassifierTrainer(object):
+    '''
+    Trainer class for classifier
+    '''
     def __init__(self,
                 train_dataset,
                 validation_dataset,
@@ -181,6 +170,16 @@ class ClassifierTrainer(object):
                 optimizer,
                 lr_schedule
                 ):
+        '''
+        __init__ method. Instantiates logs and checkpoint directories, as well as relevant callbacks to be used for training
+
+        :params:
+        tf.keras.Dataset train_dataset: Training dataset
+        tf.keras.Dataset validataion_dataset: Training dataset
+        tf.keras.Model model: Classifier Model. Typically one pre-trained on Imagenet
+        tf.keras.Optimizer optimizer: Optimizer used for training e.g. Adam
+        function lr_schedule: A function that takes in an epoch and returns the relevant learning rate
+        '''
 
         # Define Directories
         current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
@@ -848,7 +847,7 @@ class ProgressiveGANTrainer(object):
 
             if self.hard_start and not self.loaded:
                 self.hard_start_steps = 10
-                self.alpha = 0.5
+                self.alpha = 1.0
             else:
                 self.hard_start_steps = -1
                 self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)
