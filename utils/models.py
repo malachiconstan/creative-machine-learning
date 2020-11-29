@@ -1,6 +1,9 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
-import tensorflow_addons as tfa
+try:
+    import tensorflow_addons as tfa
+except:
+    print('TFA cannot be imported')
 
 from easydict import EasyDict as edict
 
@@ -34,17 +37,13 @@ class Generator(tf.keras.Model):
         if upscale:
             self.body = tf.keras.Sequential([
                 layers.Input(shape=(latent_dim,)),
-                layers.Dense(8*8*1024),
+                layers.Dense(8*8*512),
                 layers.BatchNormalization(),
                 layers.LeakyReLU(),
 
-                layers.Reshape((8,8,1024)),
+                layers.Reshape((8,8,512)),
                 
-                layers.Conv2DTranspose(512,(5,5),strides=(1,1),padding='same',use_bias=False),
-                layers.BatchNormalization(),
-                layers.LeakyReLU(),
-
-                layers.Conv2DTranspose(256,(5,5),strides=(2,2),padding='same',use_bias=False),
+                layers.Conv2DTranspose(256,(5,5),strides=(1,1),padding='same',use_bias=False),
                 layers.BatchNormalization(),
                 layers.LeakyReLU(),
 
@@ -55,6 +54,10 @@ class Generator(tf.keras.Model):
                 layers.Conv2DTranspose(64,(5,5),strides=(2,2),padding='same',use_bias=False),
                 layers.BatchNormalization(),
                 layers.LeakyReLU(),
+
+                # layers.Conv2DTranspose(64,(5,5),strides=(2,2),padding='same',use_bias=False),
+                # layers.BatchNormalization(),
+                # layers.LeakyReLU(),
 
                 layers.Conv2DTranspose(32,(5,5),strides=(2,2),padding='same',use_bias=False),
                 layers.BatchNormalization(),
@@ -93,7 +96,7 @@ class Discriminator(tf.keras.Model):
 
         if upscale:
             self.body = tf.keras.Sequential([
-                layers.Input(shape=(256,256,3)),
+                layers.Input(shape=(128,128,3)),
                 layers.Conv2D(32,(5,5),strides=(2,2),padding='same'),
                 layers.LeakyReLU(),
                 layers.Dropout(0.3),
@@ -114,9 +117,9 @@ class Discriminator(tf.keras.Model):
                 layers.LeakyReLU(),
                 layers.Dropout(0.3),
 
-                layers.Conv2D(1024,(5,5),strides=(2,2),padding='same'),
-                layers.LeakyReLU(),
-                layers.Dropout(0.3),
+                # layers.Conv2D(1024,(5,5),strides=(2,2),padding='same'),
+                # layers.LeakyReLU(),
+                # layers.Dropout(0.3),
 
                 layers.Flatten(),
                 layers.Dense(1)
