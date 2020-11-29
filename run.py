@@ -214,7 +214,7 @@ if __name__ == '__main__':
 
         train_dataset = get_image_dataset(os.path.join(data_directory,'google_pavilion','*.jpeg'), opt.img_height, opt.img_height, opt.batch_size)
 
-        if opt.img_height == 256:
+        if opt.img_height == 128:
             print('Using upscaled DCGAN')
             generator = Generator(latent_dim = opt.latent_dim, upscale=True)
             discriminator = Discriminator(upscale=True)
