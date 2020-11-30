@@ -847,7 +847,7 @@ class ProgressiveGANTrainer(object):
 
             if self.hard_start and not self.loaded:
                 self.hard_start_steps = 10
-                self.alpha = 1.0
+                self.alpha = 0.9
             else:
                 self.hard_start_steps = -1
                 self.alpha = min(1., (self.start_epoch - 1) % self.epochs * training_steps * self.resolution_alpha_increment)

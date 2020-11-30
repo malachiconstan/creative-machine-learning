@@ -61,7 +61,7 @@ if __name__ == '__main__':
     config = edict()
     config.datapath = os.path.join(os.getcwd(),'data','google_pavilion','*.jpeg')
     config.latent_dim = 512
-    config.resolution = 8
+    config.resolution = 4
     config.stop_resolution = 128
     config.start_epoch = 1
     config.epochs = 320
