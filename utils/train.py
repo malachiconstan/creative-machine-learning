@@ -843,7 +843,7 @@ class ProgressiveGANTrainer(object):
 
             training_steps = len(train_dataset)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
-            self.resolution_alpha_increment = 1. / (self.epochs / 2 * training_steps)
+            self.resolution_alpha_increment = 1. / (self.epochs / 5 * training_steps)
 
             if self.hard_start and not self.loaded:
                 self.hard_start_steps = 10
