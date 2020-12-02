@@ -5,6 +5,7 @@ import keras
 import datetime as dt
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from glob import glob
 from shutil import copyfile
@@ -134,9 +135,16 @@ class ClassifierTrainer(object):
         # Define Learning Rate Scheduler
         self.lr_callback = keras.callbacks.LearningRateScheduler(lr_schedule)
 
+        if keras.__version__ == '2.2.4':
+            loss = keras.losses.sparse_categorical_crossentropy
+        elif keras.__version__ == '2.4.3':
+            loss = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+        else:
+            raise NotImplementedError(f'{keras.__version__} is not supported')
+
         self.model.compile(
             optimizer = self.optimizer,
-            loss=keras.losses.sparse_categorical_crossentropy,
+            loss=loss,
             metrics = ["accuracy"]
         )
     
@@ -154,7 +162,16 @@ class ClassifierTrainer(object):
             callbacks=[self.cp_callback, self.tensorboard_callback, self.lr_callback],
         )
 
+        self.model.save(os.path.join(self.checkpoint_dir,'classifier_weights.h5'))
+
         print('Training Completed')
+
+    def load(self, load_h5=True):
+        if load_h5:
+            self.model.save(os.path.join(self.checkpoint_dir,'classifier_weights.h5'))
+        else:
+            self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
+        print('Model Loaded')
 
     def infer(self,
             infer_datadir,
@@ -163,7 +180,7 @@ class ClassifierTrainer(object):
             img_width
             ):
 
-        # self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
+        self.load()
         file_paths = glob(os.path.join(infer_datadir,'*.jpeg')) + glob(os.path.join(infer_datadir,'*.jpg'))
         test_pred = np.stack([preprocessing_layer(img_to_array(load_img(file, target_size=(img_height,img_width)))) for file in file_paths])
 
@@ -172,6 +189,85 @@ class ClassifierTrainer(object):
         df_preds.index = [os.path.split(fp)[1] for fp in file_paths]
         df_preds.columns = list(self.train_dataset.class_indices.keys())
 
-        df_preds.to_csv('predictions.csv')
+        df_preds.to_excel('predictions.xlsx')
 
         print('Inference Completed')
+
+
+def plot_image_grid(grid,
+                    row_labels_left,
+                    row_labels_right,
+                    col_labels,
+                    file_name=None,
+                    figsize=None,
+                    dpi=224):
+    '''
+    Helper function from INNvestigate library
+
+    '''
+    n_rows = len(grid)
+    n_cols = len(grid[0])
+    if figsize is None:
+        figsize = (n_cols, n_rows+1)
+
+    plt.clf()
+    plt.rc("font", family="sans-serif")
+
+    plt.figure(figsize=figsize)
+    for r in range(n_rows):
+        for c in range(n_cols):
+            ax = plt.subplot2grid(shape=[n_rows+1, n_cols], loc=[r+1, c])
+            # No border around subplots
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            # TODO controlled color mapping wrt all grid entries,
+            # or individually. make input param
+            if grid[r][c] is not None:
+                ax.imshow(grid[r][c], interpolation='none')
+            else:
+                for spine in plt.gca().spines.values():
+                    spine.set_visible(False)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            # column labels
+            if not r:
+                if col_labels != []:
+                    ax.set_title(col_labels[c],
+                                 rotation=22.5,
+                                 horizontalalignment='left',
+                                 verticalalignment='bottom')
+
+            # row labels
+            if not c:
+                if row_labels_left != []:
+                    txt_left = [l+'\n' for l in row_labels_left[r]]
+                    ax.set_ylabel(
+                        ''.join(txt_left),
+                        rotation=0,
+                        verticalalignment='center',
+                        horizontalalignment='right',
+                    )
+
+            if c == n_cols-1:
+                if row_labels_right != []:
+                    txt_right = [l+'\n' for l in row_labels_right[r]]
+                    ax2 = ax.twinx()
+                    # No border around subplots
+                    for spine in ax2.spines.values():
+                        spine.set_visible(False)
+                    ax2.set_xticks([])
+                    ax2.set_yticks([])
+                    ax2.set_ylabel(
+                        ''.join(txt_right),
+                        rotation=0,
+                        verticalalignment='center',
+                        horizontalalignment='left'
+                    )
+
+    if file_name is None:
+        plt.show()
+    else:
+        print('Saving figure to {}'.format(file_name))
+        plt.savefig(file_name, orientation='landscape', dpi=dpi, bbox_inches='tight')
+        plt.show()
