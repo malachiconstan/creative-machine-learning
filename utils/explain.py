@@ -4,15 +4,18 @@ import tensorflow as tf
 import keras
 import datetime as dt
 import numpy as np
+import pandas as pd
 
 from glob import glob
 from shutil import copyfile
+from PIL import Image
+from keras.preprocessing.image import img_to_array, load_img
 
 def get_classifier(input_shape, num_classes=19):
     base_model = keras.applications.DenseNet169(input_shape=input_shape, include_top=False, weights='imagenet')
     preprocessing_layer = keras.applications.densenet.preprocess_input
     global_average_layer = keras.layers.GlobalAveragePooling2D()
-    prediction_layer = keras.layers.Dense(num_classes)
+    prediction_layer = keras.layers.Dense(num_classes, activation="softmax")
     
     x = base_model.output
     x = global_average_layer(x)
@@ -141,12 +144,6 @@ class ClassifierTrainer(object):
             epochs=10,
             batch_size=32
             ):
-
-        # self.history = self.model.fit(self.train_dataset,
-        #                         batch_size=batch_size,
-        #                         epochs=epochs,
-        #                         callbacks=[self.cp_callback, self.tensorboard_callback, self.lr_callback],
-        #                         validation_data=self.validation_dataset)
         
         self.history = self.model.fit_generator(
             self.train_dataset,
@@ -159,22 +156,22 @@ class ClassifierTrainer(object):
 
         print('Training Completed')
 
-    # def infer(self,
-    #         infer_datadir,
-    #         img_height,
-    #         img_width,
-    #         classnames
-    #         ):
+    def infer(self,
+            infer_datadir,
+            preprocessing_layer,
+            img_height,
+            img_width
+            ):
 
-    #     self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
-    #     file_paths = glob(os.path.join(infer_datadir,'*.jpeg')) + glob(os.path.join(infer_datadir,'*.jpg'))
-    #     test_pred = tf.stack([process_path(file,img_height,img_width,False,False) for file in file_paths])
+        # self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
+        file_paths = glob(os.path.join(infer_datadir,'*.jpeg')) + glob(os.path.join(infer_datadir,'*.jpg'))
+        test_pred = np.stack([preprocessing_layer(img_to_array(load_img(file, target_size=(img_height,img_width)))) for file in file_paths])
 
-    #     preds = tf.nn.softmax(self.model(test_pred),axis=1).numpy()
-    #     df_preds = pd.DataFrame(preds)
-    #     df_preds.index = [os.path.split(fp)[1] for fp in file_paths]
-    #     df_preds.columns = classnames
+        preds = self.model.predict(test_pred)
+        df_preds = pd.DataFrame(preds)
+        df_preds.index = [os.path.split(fp)[1] for fp in file_paths]
+        df_preds.columns = list(self.train_dataset.class_indices.keys())
 
-    #     df_preds.to_csv('predictions.csv')
+        df_preds.to_csv('predictions.csv')
 
-    #     print('Inference Completed')
+        print('Inference Completed')
