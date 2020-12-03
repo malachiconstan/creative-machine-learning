@@ -168,10 +168,11 @@ class ClassifierTrainer(object):
 
     def load(self, load_h5=True):
         if load_h5:
-            self.model.save(os.path.join(self.checkpoint_dir,'classifier_weights.h5'))
+            self.model = keras.models.load_model(os.path.join(self.checkpoint_dir,'classifier_weights.h5'))
+            print('H5 Loaded')
         else:
             self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
-        print('Model Loaded')
+            print('Checkpoint Loaded')
 
     def infer(self,
             infer_datadir,
@@ -208,12 +209,13 @@ def plot_image_grid(grid,
     n_rows = len(grid)
     n_cols = len(grid[0])
     if figsize is None:
-        figsize = (n_cols, n_rows+1)
+        figsize = (n_cols*3, (n_rows+1)*3)
 
     plt.clf()
     plt.rc("font", family="sans-serif")
 
-    plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize)
+    fig.patch.set_facecolor('#FFFFFF')
     for r in range(n_rows):
         for c in range(n_cols):
             ax = plt.subplot2grid(shape=[n_rows+1, n_cols], loc=[r+1, c])
