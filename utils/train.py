@@ -195,7 +195,7 @@ class ClassifierTrainer(object):
             os.makedirs(self.__checkpoint_dir)
 
         # Define tensorboard callback to track loss and accuracy on tensorboard
-        self.__tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
+        self.__tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.__log_dir)
 
         # Define Checkpoint callback to save model every epoch
         self.__cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(self.__checkpoint_dir,'cp.ckpt'),
@@ -212,7 +212,7 @@ class ClassifierTrainer(object):
         self.__validation_dataset = validation_dataset
 
         # Define Learning Rate Scheduler and log learning rate schedule to 
-        self.__file_writer = tf.summary.create_file_writer(self.log_dir + "/metrics")
+        self.__file_writer = tf.summary.create_file_writer(self.__log_dir + "/metrics")
         self.__file_writer.set_as_default()
 
         # Set learning rate callback to decrease learning rate during training

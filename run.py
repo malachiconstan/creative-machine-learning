@@ -157,6 +157,7 @@ if __name__ == '__main__':
         print('Training Classifier')
         data_directory = os.path.join(os.getcwd(),'classifier_data')
 
+        # Initialise training dataset
         train_ds = keras.preprocessing.image_dataset_from_directory(
             data_directory,
             labels='inferred',
@@ -168,6 +169,7 @@ if __name__ == '__main__':
             batch_size=opt.batch_size,
         )
 
+        # Initialise validation dataset
         val_ds = keras.preprocessing.image_dataset_from_directory(
             data_directory,
             labels='inferred',
@@ -179,16 +181,24 @@ if __name__ == '__main__':
             batch_size=opt.batch_size,
         )
 
+        # Get number of classes within the data directory
         folders = 0
         for _, dirnames, _ in os.walk(data_directory):
             folders += len(dirnames)
 
+        # Initialise Classifier Model
         classifier_net = get_classifier((opt.img_height, opt.img_height, 3), num_classes=folders)
 
-        def lr_schedule(epoch):
-            """
+        # Define Learning Rate Schedule
+        def lr_schedule(epoch, **kwargs):
+            '''
             Returns a custom learning rate that decreases as epochs progress.
-            """
+
+            :params:
+            int epoch: Current epoch
+
+            return: float learning_rate: Learning rate for epoch
+            '''
             learning_rate = opt.lr
             if epoch > 25:
                 learning_rate = opt.lr/10
@@ -200,11 +210,13 @@ if __name__ == '__main__':
             tf.summary.scalar('learning rate', data=learning_rate, step=epoch)
             return learning_rate
 
+        # Initialise classifier trainer
         trainer = ClassifierTrainer(train_ds, val_ds, classifier_net, tf.keras.optimizers.Adam(learning_rate=opt.lr), lr_schedule)
 
+        # Either infer or train classifier
         if opt.infer:
             infer_dir = os.path.join(os.getcwd(),'classifier_infer_data')
-            trainer.infer(infer_dir, opt.img_height, opt.img_height, class_names)
+            trainer.infer(infer_dir, opt.img_height, opt.img_height)
         else:
             trainer.train(opt.epochs, opt.batch_size)
 
