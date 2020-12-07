@@ -204,7 +204,6 @@ if __name__ == '__main__':
 
         if opt.infer:
             infer_dir = os.path.join(os.getcwd(),'classifier_infer_data')
-            class_names = train_ds.class_names
             trainer.infer(infer_dir, opt.img_height, opt.img_height, class_names)
         else:
             trainer.train(opt.epochs, opt.batch_size)

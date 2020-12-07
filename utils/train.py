@@ -161,7 +161,8 @@ def train(dataset,
 
 class ClassifierTrainer(object):
     '''
-    Trainer class for classifier
+    Trainer class for classifier. Initialise this class, then call train() method to train the classifier.
+    The class takes care of logging and model saving, as well as learning rate scheduling.
     '''
     def __init__(self,
                 train_dataset,
@@ -181,69 +182,107 @@ class ClassifierTrainer(object):
         function lr_schedule: A function that takes in an epoch and returns the relevant learning rate
         '''
 
-        # Define Directories
+        # Define Directory paths
         current_time = dt.datetime.now().strftime("%Y%m%d-%H%M")
-        self.log_dir = os.path.join(os.getcwd(),'classifier_logs',current_time)
-        self.checkpoint_dir = os.path.join(os.getcwd(),'classifier_checkpoints')
+        self.__log_dir = os.path.join(os.getcwd(),'classifier_logs',current_time)
+        self.__checkpoint_dir = os.path.join(os.getcwd(),'classifier_checkpoints')
 
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
+        # Create Directories if directories do not exist
+        if not os.path.exists(self.__log_dir):
+            os.makedirs(self.__log_dir)
 
-        if not os.path.exists(self.checkpoint_dir):
-            os.makedirs(self.checkpoint_dir)
+        if not os.path.exists(self.__checkpoint_dir):
+            os.makedirs(self.__checkpoint_dir)
 
-        self.tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
+        # Define tensorboard callback to track loss and accuracy on tensorboard
+        self.__tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.log_dir)
 
-        # Define Checkpoint
-        self.cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(self.checkpoint_dir,'cp.ckpt'), verbose=1, save_weights_only=True, save_freq = 'epoch')
+        # Define Checkpoint callback to save model every epoch
+        self.__cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(self.__checkpoint_dir,'cp.ckpt'),
+                                                                verbose=1,
+                                                                save_weights_only=True,
+                                                                save_freq = 'epoch')
 
-        self.model = model
-        self.optimizer = optimizer
+        # Store Model and Optimizer
+        self.__model = model
+        self.__optimizer = optimizer
 
-        self.train_dataset = train_dataset
-        self.validation_dataset = validation_dataset
+        # Store train and validation datasets
+        self.__train_dataset = train_dataset
+        self.__validation_dataset = validation_dataset
 
-        # Define Learning Rate Scheduler
-        self.file_writer = tf.summary.create_file_writer(self.log_dir + "/metrics")
-        self.file_writer.set_as_default()
+        # Define Learning Rate Scheduler and log learning rate schedule to 
+        self.__file_writer = tf.summary.create_file_writer(self.log_dir + "/metrics")
+        self.__file_writer.set_as_default()
 
-        self.lr_callback = tf.keras.callbacks.LearningRateScheduler(lr_schedule)
+        # Set learning rate callback to decrease learning rate during training
+        self.__lr_callback = tf.keras.callbacks.LearningRateScheduler(lr_schedule)
 
-        self.model.compile(
-            optimizer = self.optimizer,
+        # Compile Model with Loss and Optimizer
+        self.__model.compile(
+            optimizer = self.__optimizer,
             loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
             metrics = ["accuracy"]
         )
     
     def train(self,
-            epochs=10,
+            epochs=100,
             batch_size=32
             ):
+        '''
+        train method. Trains the model using the stored train and validation datasets, then returns the history
 
-        self.history = self.model.fit(self.train_dataset,
+        :params:
+        int epochs: total epochs to train for
+        int batch_size: Batch Size
+        '''
+
+        self.history = self.__model.fit(self.__train_dataset,
                                 batch_size=batch_size,
                                 epochs=epochs,
-                                callbacks=[self.cp_callback, self.tensorboard_callback],
-                                validation_data=self.validation_dataset)
+                                callbacks=[self.__cp_callback, self.__tensorboard_callback, self.__lr_callback],
+                                validation_data=self.__validation_dataset)
 
         print('Training Completed')
 
     def infer(self,
             infer_datadir,
             img_height,
-            img_width,
-            classnames
+            img_width
             ):
+        '''
+        infer method. Generate an excel sheet showing the percentage allocated to each year for each inferred image.
+        Inferred images should be stored in infer_datadir and all be in either jpg or jpeg format.
+        img_width and img_height should be the same as that of the model.
 
-        self.model.load_weights(os.path.join(self.checkpoint_dir,'cp.ckpt'))
+        :params:
+        str infer_datadir: str or os.path that stores a path to the infer_datadir
+        int img_height: Image height to rescale to
+        int img_width: Image Width to rescale to
+        '''
+
+        # Load the weights in the checkpoint
+        self.__model.load_weights(os.path.join(self.__checkpoint_dir,'cp.ckpt'))
+
+        # Get all file paths of all images in the infer data directory using glob
         file_paths = glob(os.path.join(infer_datadir,'*.jpeg')) + glob(os.path.join(infer_datadir,'*.jpg'))
+
+        # Create a tensor for all the infer images. Use the process_path function to convert an image to a tensor
         test_pred = tf.stack([process_path(file,img_height,img_width,False,False) for file in file_paths])
 
-        preds = tf.nn.softmax(self.model(test_pred),axis=1).numpy()
-        df_preds = pd.DataFrame(preds)
-        df_preds.index = [os.path.split(fp)[1] for fp in file_paths]
-        df_preds.columns = classnames
+        # Apply softmax after predicting using the model to get the class probabilities
+        preds = tf.nn.softmax(self.__model(test_pred),axis=1).numpy()
 
+        # Create a new dataframe from the class probabilities array
+        df_preds = pd.DataFrame(preds)
+
+        # The row names are the file names
+        df_preds.index = [os.path.split(fp)[1] for fp in file_paths]
+
+        # Column names are the class names
+        df_preds.columns = self.__train_dataset.class_names
+        
+        # Save predictions to a csv file
         df_preds.to_csv('predictions.csv')
 
         print('Inference Completed')
