@@ -12,10 +12,11 @@ if __name__ == '__main__':
     IMG_HEIGHT = 128
     model, preprocessing_layer = get_classifier((IMG_HEIGHT,IMG_HEIGHT,3))
 
-    def lr_schedule(epoch, lr):
+    def lr_schedule(epoch, **kwargs):
         """
         Returns a custom learning rate that decreases as epochs progress.
         """
+        lr = 1e-3
         if epoch <= 25:
             return lr
         if epoch <= 50:

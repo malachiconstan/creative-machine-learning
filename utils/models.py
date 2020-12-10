@@ -14,12 +14,26 @@ from utils.losses import wgan_loss
 from utils.pggan_cl import model_builder
 
 def get_classifier(input_shape, num_classes=19):
+    '''
+    Returns a pre-trained efficientnetb3 model
+    
+    :params:
+        tuple input_shape: Input shape of model e.g. (128,128,3)
+        int num_classes: Number of output classes for model
+    
+    :return:
+        tf.keras.Model: Pre-trained imagenet model
+    '''
 
+    # Initialise base model with pre-trained weights
     base_model = tf.keras.applications.EfficientNetB3(input_shape=input_shape, include_top=False, weights='imagenet')
+
+    # Get preprocessing layer
     preprocess_input = tf.keras.applications.efficientnet.preprocess_input
     global_average_layer = tf.keras.layers.GlobalAveragePooling2D()
     prediction_layer = tf.keras.layers.Dense(num_classes)
-
+    
+    # Build model using Keras functional API
     inputs = tf.keras.Input(shape=input_shape)
     x = preprocess_input(inputs)
     x = base_model(x)

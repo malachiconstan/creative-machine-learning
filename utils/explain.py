@@ -74,7 +74,7 @@ def get_datasets(train_data_dir, val_data_dir, preprocessing_layer,img_height=18
         target_size=(img_height, img_width),
         batch_size=batch_size,
         class_mode='sparse')
-
+        
     val_datagen = keras.preprocessing.image.ImageDataGenerator(
         preprocessing_function=preprocessing_layer,
     )
