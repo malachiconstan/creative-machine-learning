@@ -64,7 +64,7 @@ if __name__ == '__main__':
     config.resolution = 4
     config.stop_resolution = 256
     config.start_epoch = 1
-    config.epochs = 640
+    config.epochs = 1280
     config.lambdaGP = 10
     config.leaky_relu_leak = 0.2
     config.kernel_initializer = 'he_normal'
