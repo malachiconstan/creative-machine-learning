@@ -64,21 +64,22 @@ if __name__ == '__main__':
     config.resolution = 4
     config.stop_resolution = 256
     config.start_epoch = 1
-    config.epochs = 640
+    config.epochs = 1280
     config.lambdaGP = 10
     config.leaky_relu_leak = 0.2
     config.kernel_initializer = 'he_normal'
     config.output_activation = tf.keras.activations.tanh
     config.hard_start = True
+    config.loss_iter_evaluation = opt.loss_iter_evaluation
+    config.save_iter = opt.save_iter
+    config.model_label = "PGGAN"
 
     generator_optimizer = keras.optimizers.Adam(opt.glr ,beta_1=opt.beta1, beta_2=opt.beta2)
     discriminator_optimizer = keras.optimizers.Adam(opt.dlr ,beta_1=opt.beta1, beta_2=opt.beta2)
 
     pggan_trainer = ProgressiveGANTrainer(config=config,
                                         discriminator_optimizer=discriminator_optimizer,
-                                        generator_optimizer=generator_optimizer,
-                                        save_iter=opt.save_iter,
-                                        loss_iter_evaluation=opt.loss_iter_evaluation)
+                                        generator_optimizer=generator_optimizer)
 
     try:
         from google.colab import drive

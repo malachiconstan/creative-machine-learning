@@ -137,8 +137,6 @@ class ClassifierTrainer(object):
 
         if keras.__version__ == '2.2.4':
             loss = keras.losses.sparse_categorical_crossentropy
-        elif keras.__version__ == '2.4.3':
-            loss = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
         else:
             raise NotImplementedError(f'{keras.__version__} is not supported')
 

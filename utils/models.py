@@ -5,12 +5,7 @@ try:
 except:
     print('TFA cannot be imported')
 
-from easydict import EasyDict as edict
-
-from utils.custom_layers import EqualizeLearningRate, PGUpSampleBlock, PGDownSampleBlock, GeneratorInputBlock, DiscriminatorOutputBlock
-from utils.custom_layers import pg_upsample_block, pg_downsample_block, generator_input_block, discriminator_output_block #EqualizedConv2D, EqualizedDense, NormalizationLayer, mini_batch_sd
-from utils.config import BaseConfig
-from utils.losses import wgan_loss
+from utils.custom_layers import EqualizeLearningRate, pg_upsample_block, pg_downsample_block, generator_input_block, discriminator_output_block
 from utils.pggan_cl import model_builder
 
 def get_classifier(input_shape, num_classes=19):
@@ -44,6 +39,9 @@ def get_classifier(input_shape, num_classes=19):
     return model
 
 class Generator(tf.keras.Model):
+    '''
+    Defines a DCGAN Generator
+    '''
     def __init__(self, latent_dim, name = 'Vanilla_GAN', upscale = False, **kwargs):
         super(Generator, self).__init__(name = name, **kwargs)
         self.latent_dim = latent_dim
@@ -105,6 +103,9 @@ class Generator(tf.keras.Model):
         return X
 
 class Discriminator(tf.keras.Model):
+    '''
+    Defines a DCGAN Discriminator
+    '''
     def __init__(self, name = 'Vanilla_GAN_Discriminator', upscale = False, **kwargs):
         super(Discriminator, self).__init__(name = name, **kwargs)
 
@@ -162,6 +163,9 @@ class Discriminator(tf.keras.Model):
 
         return X
 class DownSampleBlock(tf.keras.Model):
+    '''
+    Defines a CGAN Downsample Block
+    '''
     def __init__(self,
                 filters,
                 size,
@@ -183,6 +187,9 @@ class DownSampleBlock(tf.keras.Model):
 
 
 class UpSampleBlock(tf.keras.Model):
+    '''
+    Defines a CGAN Upsample Block
+    '''
     def __init__(self,
                 filters,
                 size,
@@ -205,6 +212,9 @@ class UpSampleBlock(tf.keras.Model):
         return X
 
 class CGGenerator(tf.keras.Model):
+    '''
+    Defines a CGAN Generator
+    '''
     def __init__(self, name = 'Cycle_GANG', output_channels=3, **kwargs):
         super(CGGenerator, self).__init__(name = name, **kwargs)
 
@@ -252,6 +262,9 @@ class CGGenerator(tf.keras.Model):
         return X
 
 class CGDiscriminator(tf.keras.Model):
+    '''
+    Defines a CGAN Discriminator
+    '''
     def __init__(self, name = 'Cycle_GAND', **kwargs):
         super(CGDiscriminator, self).__init__(name = name, **kwargs)
 
@@ -273,22 +286,44 @@ class CGDiscriminator(tf.keras.Model):
 
         return X
 
-def pg_generator(output_resolution=4,
-                latent_dim=512,
-                leaky_relu_leak=0.2,
-                kernel_initializer='he_normal',
-                output_activation = tf.keras.activations.tanh,
-                name = 'PGGAN_Generator'):
+def pg_generator(
+        output_resolution=4,
+        latent_dim=512,
+        filters={4:512, 8:512, 16:512, 32:512, 64:256, 128:128, 256:64, 512:32},
+        leaky_relu_leak=0.2,
+        kernel_initializer='he_normal',
+        output_activation = tf.keras.activations.tanh,
+        name = 'PGGAN_Generator'
+    ):
+    '''
+    Returns a function PGGAN Generator
+    Fully adapted from https://github.com/henry32144/pggan-tensorflow
+    Original Nvidia Model: https://github.com/tkarras/progressive_growing_of_gans
     
+    :params:
+        int output_resolution: Output resolution of generator
+        int latent_dim: Latent Dimension of input noise
+        dict filters: Number of input and output filters at all resolutions
+        float leaky_relu_leak: Alpha for leaky ReLU leak
+        str kernel_initializer: Type of kernel_initializer to use
+        tf.keras.activations.Activation output_activation: Type of output activation for layers
+        str name: Name of model
+    
+    :return:
+        tf.keras.Model: PGGAN Generator at specified resolution
+    '''
+    # Check output_resolution
     if output_resolution not in [4,8,16,32,64,128,256,512]:
         raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
 
     # Declare Inputs
     z = tf.keras.Input(latent_dim, name=name+'_input')
     alpha = tf.keras.Input((1), name='input_alpha')
-
+    
+    # Create input block
     X = generator_input_block(z, kernel_initializer=kernel_initializer, leaky_relu_alpha=leaky_relu_leak, latent_dim=latent_dim)
 
+    # Output immediately if output resolution is 4
     if output_resolution == 4:
         to_rgb = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
                                                         kernel_size=1,
@@ -302,12 +337,12 @@ def pg_generator(output_resolution=4,
 
         return tf.keras.Model(inputs=[z, alpha], outputs=X)
 
-    # Fade In
+    # Create additional blocks otherwise
     resolution = 8
     while resolution <= output_resolution:
         X, upsampled_X = pg_upsample_block(X,
-                                            input_filters=512,
-                                            output_filters=512,
+                                            input_filters=filters[resolution//2],
+                                            output_filters=filters[resolution],
                                             kernel_size=3,
                                             strides=1,
                                             padding='same',
@@ -315,7 +350,8 @@ def pg_generator(output_resolution=4,
                                             kernel_initializer='he_normal',
                                             name=f'Up_{resolution}x{resolution}')
         resolution *= 2
-
+    
+    # Build left and right fade in branches
     to_rgb_current_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
                                                     kernel_size=1,
                                                     strides=1,
@@ -346,14 +382,33 @@ def pg_generator(output_resolution=4,
 
     return tf.keras.Model(inputs=[z, alpha], outputs=output, name=name)
 
-def pg_discriminator(input_resolution=4,
-                leaky_relu_leak=0.2,
-                kernel_initializer='he_normal',
-                name = 'PGGAN_Discriminator'):
+def pg_discriminator(
+        input_resolution=4,
+        filters={4:512, 8:512, 16:512, 32:512, 64:256, 128:128, 256:64, 512:32},
+        leaky_relu_leak=0.2,
+        kernel_initializer='he_normal',
+        name = 'PGGAN_Discriminator'
+    ):
+    '''
+    Returns a function PGGAN Discriminator.
+    Fully adapted from https://github.com/henry32144/pggan-tensorflow
+    Original Nvidia Model: https://github.com/tkarras/progressive_growing_of_gans 
+    
+    :params:
+        int input_resolution: Input resolution of discriminator
+        float leaky_relu_leak: Alpha for leaky ReLU leak
+        str kernel_initializer: Type of kernel_initializer to use
+        str name: Name of model
+    
+    :return:
+        tf.keras.Model: PGGAN Generator at specified resolution
+    '''
 
+    # Define inputs
     input_images = tf.keras.Input((input_resolution, input_resolution, 3), name=name+'_input')
     alpha = tf.keras.Input((1), name='input_alpha')
 
+    # Build upconv layers if input resolution is 4
     if input_resolution == 4:
         from_rgb = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                             kernel_size=1,
@@ -377,8 +432,9 @@ def pg_discriminator(input_resolution=4,
         X = discriminator_output_block(X, kernel_initializer, leaky_relu_leak)
         return tf.keras.Model(inputs=[input_images, alpha], outputs=X)
 
+    # Otherwise build left and right branches
     # Left branch
-    from_rgb_current_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+    from_rgb_current_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(filters[input_resolution],
                                                                             kernel_size=1,
                                                                             strides=1,
                                                                             padding='same',
@@ -388,7 +444,7 @@ def pg_discriminator(input_resolution=4,
                                                                             name=f'from_rgb_{input_resolution}x{input_resolution}')
 
 
-    from_rgb_previous_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
+    from_rgb_previous_resolution = EqualizeLearningRate(tf.keras.layers.Conv2D(filters[input_resolution//2],
                                                                             kernel_size=1,
                                                                             strides=1,
                                                                             padding='same',
@@ -405,8 +461,8 @@ def pg_discriminator(input_resolution=4,
     # Right branch
     r_X = from_rgb_current_resolution(input_images)
     r_X = pg_downsample_block(r_X,
-                            output_filters1=512,
-                            output_filters2=512,
+                            output_filters1=filters[input_resolution],
+                            output_filters2=filters[input_resolution//2],
                             kernel_size=3,
                             strides=1,
                             padding='same',
@@ -417,10 +473,12 @@ def pg_discriminator(input_resolution=4,
 
     X = tf.keras.layers.Add()([l_X, r_X])
     resolution = input_resolution//2
+
+    # Add additional blocks
     while resolution >= 8:
         X = pg_downsample_block(X,
-                            output_filters1=512,
-                            output_filters2=512,
+                            output_filters1=filters[resolution],
+                            output_filters2=filters[resolution//2],
                             kernel_size=3,
                             strides=1,
                             padding='same',
@@ -432,398 +490,69 @@ def pg_discriminator(input_resolution=4,
     X = discriminator_output_block(X, kernel_initializer, leaky_relu_leak)
     return tf.keras.Model(inputs=[input_images, alpha], outputs=X, name=name)
 
-class PGGenerator(tf.keras.Model):
-    def __init__(self,
-                output_resolution=4,
-                latent_dim=512,
-                leaky_relu_leak=0.2,
-                kernel_initializer='he_normal',
-                output_activation = tf.keras.activations.tanh,
-                name = 'PGGAN_Generator',
-                **kwargs):
-
-        super(PGGenerator, self).__init__(name = name, **kwargs)
-
-        self.leaky_relu_leak = leaky_relu_leak
-        self.output_activation = output_activation
-        self.kernel_initializer = kernel_initializer
-
-        # Define Model
-        self.input_block = GeneratorInputBlock(kernel_initializer=kernel_initializer,leaky_relu_alpha=leaky_relu_leak,latent_dim=latent_dim)
-        self.upsample_blocks = {}
-
-        # 1x1 Convolution to RGB
-        self.to_rgb = {'4':EqualizeLearningRate(tf.keras.layers.Conv2D(3,
-                                                                    kernel_size=1,
-                                                                    strides=1,
-                                                                    padding='same',
-                                                                    activation=self.output_activation,
-                                                                    kernel_initializer=self.kernel_initializer,
-                                                                    bias_initializer='zeros'), 
-                                                                    name=f'to_rgb_{4}x{4}')}
-        self.alpha = 0
-
-        # Add resolution layers
-        if output_resolution not in [4,8,16,32,64,128,256,512]:
-            raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
-
-        self.resolution = 4
-        self.output_resolution = output_resolution
-        while self.resolution < output_resolution:
-            self.double_resolution()
-
-    def get_output_resolution(self):
-        """
-        Get the size of the generated image.
-        """
-        return self.output_resolution
-
-    def double_resolution(self):
-        """
-        Add a new scale to the model. Increasing the output resolution by
-        a factor 2
-        Args:
-            - depthNewScale (int): depth of each conv layer of the new scale
-        """
-        self.resolution *= 2
-        self.upsample_blocks[str(self.resolution)] = PGUpSampleBlock(input_filters=512,
-                                                                output_filters=512,
-                                                                kernel_size=3,
-                                                                strides=1,
-                                                                padding='same',
-                                                                activation_layer=tf.keras.layers.LeakyReLU(alpha=self.leaky_relu_leak),
-                                                                kernel_initializer='he_normal',
-                                                                name=f'Up_{self.resolution}x{self.resolution}')
-
-        self.to_rgb[str(self.resolution)] = EqualizeLearningRate(tf.keras.layers.Conv2D(3,
-                                                                    kernel_size=1,
-                                                                    strides=1,
-                                                                    padding='same',
-                                                                    activation=self.output_activation,
-                                                                    kernel_initializer=self.kernel_initializer,
-                                                                    bias_initializer='zeros'), 
-                                                                    name=f'to_rgb_{self.resolution}x{self.resolution}')
-        print('Resolution doubled. Current resolution: ', self.resolution)
-
-    @property
-    def alpha(self):
-        """
-        Get alpha value
-        """
-        return self._alpha
-
-    @alpha.setter
-    def alpha(self, value):
-        """
-        Update the value of the merging factor alpha
-        Args:
-            - alpha (float): merging factor, must be in [0, 1]
-        """
-        if value < 0 or value > 1:
-            raise ValueError("alpha must be in [0,1]")
-
-        self._alpha = value
-
-    @property
-    def resolution(self):
-        """
-        Get alpha value
-        """
-        return self._res
-
-    @resolution.setter
-    def resolution(self, value):
-        """
-        Update the value of the merging factor resolution
-        Args:
-            - resolution (int): merging factor, must be in [4,8,16,32,64,128,256,512]
-        """
-        if value not in [4,8,16,32,64,128,256,512]:
-            raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
-
-        self._res = value
-
-    def call(self, X, verbose=False):
-
-        if verbose:
-            print('')
-            print('Calling Generator')
-
-        X = self.input_block(X)
-
-        if self.resolution == 4:
-            X = self.to_rgb[str(self.resolution)](X)
-            return X
-
-        # Fade In
-        res = 8
-        while res <= self.resolution:
-            X, upsampled_X = self.upsample_blocks[str(res)](X)
-            res *= 2
-
-        l_X = self.to_rgb[str(self.resolution)](X)
-        r_X = self.to_rgb[str(self.resolution//2)](upsampled_X)
-
-        # Left Branch
-        l_X = self.alpha*l_X
-
-        # Right branch
-        r_X = (1-self.alpha)*r_X
-
-        return l_X + r_X
-
-class PGDiscriminator(tf.keras.Model):
-    def __init__(self,
-                input_resolution=4,
-                leaky_relu_leak=0.2,
-                kernel_initializer='he_normal',
-                name = 'PGGAN_Discriminator',
-                **kwargs):
-
-        super(PGDiscriminator, self).__init__(name = name, **kwargs)
-
-        self.leaky_relu_leak = leaky_relu_leak
-        self.kernel_initializer = kernel_initializer
-
-        # Define Model
-        self.output_block = DiscriminatorOutputBlock()
-        self.downsample_blocks = {}
-
-        # 1x1 Convolution From RGB
-        self.from_rgb = {'4':EqualizeLearningRate(tf.keras.layers.Conv2D(512,
-                                                                    kernel_size=1,
-                                                                    strides=1,
-                                                                    padding='same',
-                                                                    activation=tf.nn.leaky_relu,
-                                                                    kernel_initializer=self.kernel_initializer,
-                                                                    bias_initializer='zeros'),
-                                                                    name=f'from_rgb_{4}x{4}')}
-        self.alpha = 0
-
-        # Special Channel for 4x4
-        self.conv2d_up_channel = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
-                                                                            kernel_size=1,
-                                                                            strides=1,
-                                                                            padding='same',
-                                                                            activation=tf.nn.leaky_relu,
-                                                                            kernel_initializer=self.kernel_initializer,
-                                                                            bias_initializer='zeros'), name='conv2d_up_channel')
-
-        # Upscaling
-        self.downscale = tf.keras.layers.AveragePooling2D(pool_size=2)
-
-        # Add resolution layers
-        if input_resolution not in [4,8,16,32,64,128,256,512]:
-            raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
-
-        self.resolution = 4
-        self.input_resolution = input_resolution
-        while self.resolution < input_resolution:
-            self.double_resolution()
-
-    def double_resolution(self):
-        """
-        Add a new scale to the model. Increasing the output resolution by
-        a factor 2
-        Args:
-            - depthNewScale (int): depth of each conv layer of the new scale
-        """
-        self.resolution *= 2
-        self.downsample_blocks[str(self.resolution)] = PGDownSampleBlock(output_filters1=512,
-                                                                output_filters2=512,
-                                                                kernel_size=3,
-                                                                strides=1,
-                                                                padding='same',
-                                                                activation_layer=tf.keras.layers.LeakyReLU(alpha=self.leaky_relu_leak),
-                                                                kernel_initializer='he_normal',
-                                                                name=f'Down_{self.resolution}x{self.resolution}')
-
-        self.from_rgb[str(self.resolution)] = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
-                                                                    kernel_size=1,
-                                                                    strides=1,
-                                                                    padding='same',
-                                                                    activation=tf.nn.leaky_relu,
-                                                                    kernel_initializer=self.kernel_initializer,
-                                                                    bias_initializer='zeros'), 
-                                                                    name=f'from_rgb_{self.resolution}x{self.resolution}')
-        print('Resolution doubled. Current resolution: ', self.resolution)
-
-    @property
-    def alpha(self):
-        """
-        Get alpha value
-        """
-        return self._alpha
-
-    @alpha.setter
-    def alpha(self, value):
-        """
-        Update the value of the merging factor alpha
-        Args:
-            - alpha (float): merging factor, must be in [0, 1]
-        """
-        if value < 0 or value > 1:
-            raise ValueError("alpha must be in [0,1]")
-
-        self._alpha = value
-
-    @property
-    def resolution(self):
-        """
-        Get alpha value
-        """
-        return self._res
-
-    @resolution.setter
-    def resolution(self, value):
-        """
-        Update the value of the merging factor resolution
-        Args:
-            - resolution (int): merging factor, must be in [4,8,16,32,64,128,256,512]
-        """
-        if value not in [4,8,16,32,64,128,256,512]:
-            raise ValueError("resolution must be in [4,8,16,32,64,128,256,512]")
-
-        self._res = value
-
-    def call(self, input, verbose=False):
-        assert input.shape[1] == self.resolution, 'Input Shape must be equal to resolution'
-        
-        if verbose:
-            print('')
-            print('Calling Discriminator')
-
-        if self.resolution == 4:
-            X = self.from_rgb['4'](input)
-            X = self.conv2d_up_channel(X)
-            X = self.output_block(X)
-            return X
-
-        # Left branch
-        l_X = self.downscale(input)
-        l_X = self.from_rgb[str(self.resolution//2)](l_X)
-        l_X = (1-self.alpha)*l_X
-
-        # Right branch
-        r_X = self.from_rgb[str(self.resolution)](input)
-        r_X = self.downsample_blocks[str(self.resolution)](r_X)
-        r_X = self.alpha*r_X
-
-        X = l_X + r_X
-        res = 8
-        while res < self.resolution:
-            X = self.downsample_blocks[str(res)](X)
-            res *= 2
-
-        X = self.output_block(X)
-        return X
-
 class ProgressiveGAN(object):
+    '''
+    PGGAN Class containing both generator and discriminator
+    '''
     def __init__(self,
                 resolution=4,
                 latent_dim=512,
+                filters={4:512, 8:512, 16:512, 32:512, 64:256, 128:128, 256:64, 512:32},
                 leaky_relu_leak=0.2,
                 kernel_initializer='he_normal',
                 output_activation = tf.keras.activations.tanh,
-                graph_mode=True,
                 original=True,
                 **kwargs):
-    
-        if not 'config' in vars(self):
-            self.config = edict()
+        '''
+        Constructor
+        :params:
+            int resolution: PGGAN Resolution
+            int latent_dim: Latent Dimension of input noise
+            dict filters: Number of input and output filters at all resolutions
+            float leaky_relu_leak: Alpha for leaky ReLU leak
+            str kernel_initializer: Type of kernel_initializer to use
+            tf.keras.activations.Activation output_activation: Type of output activation for layers
+        '''
 
-        self.graph_mode = graph_mode
         self.original = original
         
-        self.config.resolution = resolution
-        self.config.latent_dim = latent_dim
-        self.config.leaky_relu_leak = leaky_relu_leak
-        self.config.kernel_initializer = kernel_initializer
-        self.config.output_activation = output_activation
+        # Store parameters
+        self.resolution = resolution
+        self.latent_dim = latent_dim
+        self.filters = filters
+        self.leaky_relu_leak = leaky_relu_leak
+        self.kernel_initializer = kernel_initializer
+        self.output_activation = output_activation
 
-        if self.graph_mode:
-            print('Creating Functional Model')
-            if original:
-                self.Generator, self.Discriminator = model_builder(self.config.resolution)
-            else:
-                self.Discriminator = pg_discriminator(
-                    self.config.resolution,
-                    self.config.leaky_relu_leak,
-                    self.config.kernel_initializer
-                )
+        self.__initialise_models()
 
-                self.Generator = pg_generator(
-                    self.config.resolution,
-                    self.config.latent_dim,
-                    self.config.leaky_relu_leak,
-                    self.config.kernel_initializer,
-                    self.config.output_activation
-                )
-
+    def __initialise_models(self):
+        '''
+        Initialise generator and discriminator
+        '''
+        if self.original:
+            self.Generator, self.Discriminator = model_builder(self.resolution)
         else:
-            print('Creating Eager Model')
-            self.Discriminator = PGDiscriminator(self.config.resolution,
-                                self.config.leaky_relu_leak,
-                                self.config.kernel_initializer)
-            self.Generator = PGGenerator(self.config.resolution,
-                                self.config.latent_dim,
-                                self.config.leaky_relu_leak,
-                                self.config.kernel_initializer,
-                                self.config.output_activation)
+            self.Discriminator = pg_discriminator(
+                self.resolution,
+                self.leaky_relu_leak,
+                self.kernel_initializer
+            )
 
-    @property
-    def alpha(self):
-        """
-        Get alpha value
-        """
-        return self._alpha
-
-    @alpha.setter
-    def alpha(self, value):
-        """
-        Update the value of the merging factor alpha
-        Args:
-            - alpha (float): merging factor, must be in [0, 1]
-        """
-        if value < 0 or value > 1:
-            raise ValueError("alpha must be in [0,1]")
-
-        if not self.graph_mode:
-            self.Discriminator.alpha = value
-            self.Generator.alpha = value
-        self._alpha = value
-        
-    def get_resolution(self):
-        return self.config.resolution
+            self.Generator = pg_generator(
+                self.resolution,
+                self.latent_dim,
+                self.leaky_relu_leak,
+                self.kernel_initializer,
+                self.output_activation
+            )
 
     def double_resolution(self):
-        self.config.resolution *= 2
-        if self.graph_mode:
-            if self.original:
-                self.Generator, self.Discriminator = model_builder(self.config.resolution)
-                print('Using original model')
-            else:
-                self.Discriminator = pg_discriminator(
-                    self.config.resolution,
-                    self.config.leaky_relu_leak,
-                    self.config.kernel_initializer
-                )
+        '''
+        Doubles resolution of PGGAN. Note: Old weights have to be loaded manually. This does not load back the weights of the previous model
+        '''
 
-                self.Generator = pg_generator(
-                    self.config.resolution,
-                    self.config.latent_dim,
-                    self.config.leaky_relu_leak,
-                    self.config.kernel_initializer,
-                    self.config.output_activation
-                )
-                print('Using new model')
-            print(f'Resolution Doubled to {self.config.resolution}. New Model Built. Load back weights')
-        else:
-            self.Discriminator.double_resolution()
-            self.Generator.double_resolution()
-            print('Resolution Doubled.')
-
-    def __call__(self, z):
-        # Use this to build the model
-        assert z.shape[1] == self.config.latent_dim, f'Latent dimension must be same as {self.config.latent_dim}'
-        return self.Discriminator(self.Generator(z))
+        self.resolution *= 2
+        self.__initialise_models()
+        
+        print(f'Resolution Doubled to {self.resolution}. New Model Built. Load back weights')

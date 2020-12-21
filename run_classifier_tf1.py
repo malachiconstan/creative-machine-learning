@@ -2,8 +2,6 @@ import os
 import numpy as np
 import keras
 
-from PIL import Image
-
 from utils.explain import get_classifier, create_train_val, get_datasets, ClassifierTrainer
 
 if __name__ == '__main__':
