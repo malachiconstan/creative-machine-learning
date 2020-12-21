@@ -13,8 +13,7 @@ def random_image_sample(paths, chosen_images = 10):
     :params
         List paths: List of image paths
         int chosen_images: number of images to display
-    :return
-        Void
+
     '''
     chosen_image_paths = np.random.choice(np.array(paths),chosen_images,replace=False)
 
@@ -26,7 +25,23 @@ def random_image_sample(paths, chosen_images = 10):
             ax[j].yaxis.set_visible(False)
     fig.suptitle('Sampled Images')
 
-def decode_img(img,img_height,img_width, augment):
+def decode_img(
+        img,
+        img_height,
+        img_width,
+        augment
+    ):
+    '''
+    Resize and decode image
+    :params:
+        PIL.Image img: Image to be decoded
+        int img_height: Image height to resize to
+        int img_width: Image width to resize to
+        bool augment: Whether t oapply image augmentation
+    
+    return:
+        tf.Tensor: Tensor of size [h, w, c]
+    '''
     # convert the compressed string to a 3D uint8 tensor
     img = tf.image.decode_jpeg(img, channels=3)
     # resize the image to the desired size
@@ -38,21 +53,34 @@ def decode_img(img,img_height,img_width, augment):
         img = tf.image.central_crop(img, 1)
     return tf.image.resize(img, [img_height, img_width])
 
-def process_path(file_path,img_height,img_width,normalize=True,augment=True):
+def process_path(
+        file_path,
+        img_height,
+        img_width,
+        normalize=True,
+        augment=True
+    ):
+    '''
+    Process an image from an image path
+    :params:
+        str file_path: File path for image
+        int img_height: Image height to resize to
+        int img_width: Image width to resize to
+        bool normalize: Whether to normalize image
+        bool augment: Whether t oapply image augmentation
+
+    return:
+        tf.Tensor: Tensor of size [h, w, c]
+    '''
     # load the raw data from the file as a string
     img = tf.io.read_file(file_path)
     img = decode_img(img,img_height,img_width,augment=augment)
     # resize for cropping
     
-    # random crop
-    
-    # random flip between left/right
-    
     if normalize:
         img = tf.cast(img,tf.float32)
         img = (img/127.5)-1
     return img
-
 
 def configure_for_performance(ds, batch_size):
     ds = ds.shuffle(buffer_size=1000)
@@ -61,10 +89,26 @@ def configure_for_performance(ds, batch_size):
     ds = ds.prefetch(buffer_size=AUTOTUNE)
     return ds
 
-
-def get_image_dataset(file_pattern,img_height=180,img_width=180,batch_size=32,normalize=True,augment=True):
+def get_image_dataset(
+        file_pattern,
+        img_height=180,
+        img_width=180,
+        batch_size=32,
+        normalize=True,
+        augment=True
+    ):
     '''
     Function to return a train dataset from glob file pattern
+    :params:
+        str file_pattern: Glob file pattern for image dataset
+        int img_height: Image height to resize to
+        int img_width: Image width to resize to
+        int batch_size: Batch size
+        bool normalize: Whether to normalize image
+        bool augment: Whether t oapply image augmentation
+
+    return:
+        tf.keras.Dataset: Train dataset with tf.Tensors of size [b, h, w, c]
     '''
 
     list_dataset = tf.data.Dataset.list_files(file_pattern, shuffle=True)
