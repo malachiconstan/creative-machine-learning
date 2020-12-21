@@ -8,7 +8,8 @@ def extract_data_g_drive(g_drive_path, mounted = False, local_path='creative-mac
     '''
     Helper function to extract the zip file from Google Drive
     :params
-        str g_drive_path: preferably os.path, else can also be string showing path to zip file in google drive. zip file should be named data.zip
+        str g_drive_path: preferably os.path, else can also be string showing path to zip file in google drive. 
+                            zip file should be named data.zip
     '''
     cwd = '/content'
     if not mounted or not os.path.exists('/content/drive/My Drive/'):

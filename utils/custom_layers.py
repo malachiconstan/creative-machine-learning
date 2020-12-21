@@ -167,15 +167,36 @@ class MinibatchSTDDEV(tf.keras.layers.Layer):
         return (input_shape[0], input_shape[1], input_shape[2], input_shape[3] + 1)
 
 # TF Graph Approach      
-def pg_upsample_block(input_,
-                    input_filters,
-                    output_filters,
-                    kernel_size=3,
-                    strides=1,
-                    padding='valid',
-                    leaky_relu_alpha=0.2,
-                    kernel_initializer='he_normal',
-                    name=''):
+def pg_upsample_block(
+        input_,
+        input_filters,
+        output_filters,
+        kernel_size=3,
+        strides=1,
+        padding='valid',
+        leaky_relu_alpha=0.2,
+        kernel_initializer='he_normal',
+        name=''
+    ):
+    '''
+    Returns a PGGAN Upsample Block for the Generator
+    Fully adapted from https://github.com/henry32144/pggan-tensorflow
+    Original Nvidia Model: https://github.com/tkarras/progressive_growing_of_gans
+    
+    :params:
+        tf.keras.layers.Layer input_: Input layer
+        int input_filters: Number of input filters. Not Used
+        int output_filters: Number of output filters for conv2d layers of block
+        int kernel_size: kernel_size for conv2d layers
+        int strides: Stride for conv2d layer
+        str padding: Either 'valid' or 'same' for conv2d layer
+        float leaky_relu_alpha: Alpha for leaky ReLU leak
+        str kernel_initializer: Type of kernel_initializer to use
+        str name: Name of block
+    
+    :return:
+        tf.keras.Model: Chained functional block
+    '''
 
     upsample = tf.keras.layers.UpSampling2D(size=2, interpolation='nearest')(input_)
     upsample_x = EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters,
@@ -196,15 +217,36 @@ def pg_upsample_block(input_,
     X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name=name+'_activation_2')(X)
     return X, upsample
 
-def pg_downsample_block(X,
-                        output_filters1,
-                        output_filters2,
-                        kernel_size=3,
-                        strides=1,
-                        padding='valid',
-                        leaky_relu_alpha=0.2,
-                        kernel_initializer='he_normal',
-                        name=''):
+def pg_downsample_block(
+        X,
+        output_filters1,
+        output_filters2,
+        kernel_size=3,
+        strides=1,
+        padding='valid',
+        leaky_relu_alpha=0.2,
+        kernel_initializer='he_normal',
+        name=''
+    ):
+    '''
+    Returns a PGGAN Downsample Block for the Discriminator
+    Fully adapted from https://github.com/henry32144/pggan-tensorflow
+    Original Nvidia Model: https://github.com/tkarras/progressive_growing_of_gans
+    
+    :params:
+        tf.keras.layers.Layer X: Input layer
+        int output_filters1: Number of output filters for first conv2d layer of block
+        int output_filters2: Number of output filters for second conv2d layer of block
+        int kernel_size: kernel_size for conv2d layers
+        int strides: Stride for conv2d layer
+        str padding: Either 'valid' or 'same' for conv2d layer
+        float leaky_relu_alpha: Alpha for leaky ReLU leak
+        str kernel_initializer: Type of kernel_initializer to use
+        str name: Name of block
+    
+    :return:
+        tf.keras.Model: Chained functional block
+    '''
                         
     X = EqualizeLearningRate(tf.keras.layers.Conv2D(output_filters1,
                                                     kernel_size,
@@ -226,10 +268,24 @@ def pg_downsample_block(X,
 
     return X
 
-def generator_input_block(X,
-                        kernel_initializer='he_normal',
-                        leaky_relu_alpha=0.2,
-                        latent_dim=512):
+def generator_input_block(
+        X,
+        kernel_initializer='he_normal',
+        leaky_relu_alpha=0.2,
+        latent_dim=512
+    ):
+    '''
+    Returns a Generator Input Block for PGGAN
+    
+    :params:
+        tf.keras.layers.Layer X: Input layer
+        str kernel_initializer: Type of kernel_initializer to use
+        float leaky_relu_alpha: Alpha for leaky ReLU leak
+        int latent_dim: Size of latent dimension
+    
+    :return:
+        tf.keras.Model: Chained functional block
+    '''
 
     # Block 1
     X = EqualizeLearningRate(tf.keras.layers.Dense(4*4*latent_dim,
@@ -251,16 +307,33 @@ def generator_input_block(X,
                                                     kernel_initializer=kernel_initializer,
                                                     bias_initializer='zeros'),
                                                     name='g_input_conv2d')(X)
+    
     X = PixelNormalization(name='g_input_norm_2')(X)
     X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='g_input_activation_2')(X)
 
     return X
 
-def discriminator_output_block(X,
-                            kernel_initializer='he_normal',
-                            leaky_relu_alpha=0.2):
+def discriminator_output_block(
+        X,
+        kernel_initializer='he_normal',
+        leaky_relu_alpha=0.2
+    ):
+    '''
+    Returns a Discriminator Output Block for PGGAN
+    
+    :params:
+        tf.keras.layers.Layer X: Input layer
+        str kernel_initializer: Type of kernel_initializer to use
+        float leaky_relu_alpha: Alpha for leaky ReLU leak
+    
+    :return:
+        tf.keras.Model: Chained functional block
+    '''
 
+    # Apply minibatch standard deviation
     X = MinibatchSTDDEV()(X)
+
+    # First conv2d block
     X = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                     kernel_size=3,
                                                     strides=1,
@@ -271,6 +344,7 @@ def discriminator_output_block(X,
 
     X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='d_output_activation_1')(X)
     
+    # Second conv2d block
     X = EqualizeLearningRate(tf.keras.layers.Conv2D(512,
                                                     kernel_size=4,
                                                     strides=1,
@@ -281,6 +355,8 @@ def discriminator_output_block(X,
     X = tf.keras.layers.LeakyReLU(alpha=leaky_relu_alpha, name='d_output_activation_2')(X)
     
     X = tf.keras.layers.Flatten(name='d_output_flatten')(X)
+
+    # Output to 1 dimension
     X = EqualizeLearningRate(tf.keras.layers.Dense(1,
                                             kernel_initializer=kernel_initializer,
                                             bias_initializer='zeros'),
