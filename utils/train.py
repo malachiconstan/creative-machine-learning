@@ -269,11 +269,11 @@ class ClassifierTrainer(object):
         __init__ method. Instantiates logs and checkpoint directories, as well as relevant callbacks to be used for training
 
         :params:
-        tf.keras.Dataset train_dataset: Training dataset
-        tf.keras.Dataset validataion_dataset: Training dataset
-        tf.keras.Model model: Classifier Model. Typically one pre-trained on Imagenet
-        tf.keras.Optimizer optimizer: Optimizer used for training e.g. Adam
-        function lr_schedule: A function that takes in an epoch and returns the relevant learning rate
+            tf.keras.Dataset train_dataset: Training dataset
+            tf.keras.Dataset validataion_dataset: Training dataset
+            tf.keras.Model model: Classifier Model. Typically one pre-trained on Imagenet
+            tf.keras.Optimizer optimizer: Optimizer used for training e.g. Adam
+            function lr_schedule: A function that takes in an epoch and returns the relevant learning rate
         '''
 
         # Define Directory paths
@@ -327,8 +327,8 @@ class ClassifierTrainer(object):
         train method. Trains the model using the stored train and validation datasets, then returns the history
 
         :params:
-        int epochs: total epochs to train for
-        int batch_size: Batch Size
+            int epochs: total epochs to train for
+            int batch_size: Batch Size
         '''
 
         self.history = self.__model.fit(self.__train_dataset,
@@ -350,9 +350,9 @@ class ClassifierTrainer(object):
         img_width and img_height should be the same as that of the model.
 
         :params:
-        str infer_datadir: str or os.path that stores a path to the infer_datadir
-        int img_height: Image height to rescale to
-        int img_width: Image Width to rescale to
+            str infer_datadir: str or os.path that stores a path to the infer_datadir
+            int img_height: Image height to rescale to
+            int img_width: Image Width to rescale to
         '''
 
         # Load the weights in the checkpoint
@@ -924,6 +924,7 @@ class ProgressiveGANTrainer(object):
         ):
 
         '''
+        Private method
         Train 1 epoch for the PGGAN
         
         :params:
@@ -1027,7 +1028,6 @@ class ProgressiveGANTrainer(object):
             print('Completed')
 
         return True
-
     
     def train(
             self,
@@ -1038,6 +1038,7 @@ class ProgressiveGANTrainer(object):
             g_drive_path = '/content/drive/My Drive/CML'
         ):
         '''
+        Public method
         Main method for training. Trains PGGAN from start till the final resolution
 
         :params:
@@ -1081,8 +1082,8 @@ class ProgressiveGANTrainer(object):
                 print('Dataset Length: ', len(train_dataset))
 
             # Create training steps
-            self.discriminator_train_steps[str(resolution)] = copy(self.discriminator_train_step)
-            self.generator_train_steps[str(resolution)] = copy(self.generator_train_step)
+            self.discriminator_train_steps[str(resolution)] = copy(self.__discriminator_train_step)
+            self.generator_train_steps[str(resolution)] = copy(self.__generator_train_step)
 
             training_steps = len(train_dataset)
             # Fade in half of switch_res_every_n_epoch epoch, and stablize another half
@@ -1116,13 +1117,14 @@ class ProgressiveGANTrainer(object):
         return True
 
     @tf.function
-    def discriminator_train_step(
+    def __discriminator_train_step(
             self,
             real_images,
             noise,
             verbose=False
         ):
         '''
+        Private method
         Discriminator train step. Trains discriminator for one step. This is a tf.function, so need to create one for every resolution
 
         :params:
@@ -1179,8 +1181,14 @@ class ProgressiveGANTrainer(object):
             print('Applied discriminator loss gradients')
 
     @tf.function
-    def generator_train_step(self, noise, verbose=False, return_generated_images=False):
+    def __generator_train_step(
+            self,
+            noise,
+            verbose=False,
+            return_generated_images=False
+        ):
         '''
+        Private method
         Generator train step. Trains generator for one step. This is a tf.function, so need to create one for every resolution
 
         :params:

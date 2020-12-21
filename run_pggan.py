@@ -72,7 +72,7 @@ if __name__ == '__main__':
     config.hard_start = True
     config.loss_iter_evaluation = opt.loss_iter_evaluation
     config.save_iter = opt.save_iter
-    config.model_label = "PGGAN"
+    config.model_label = 'PGGAN'
 
     generator_optimizer = keras.optimizers.Adam(opt.glr ,beta_1=opt.beta1, beta_2=opt.beta2)
     discriminator_optimizer = keras.optimizers.Adam(opt.dlr ,beta_1=opt.beta1, beta_2=opt.beta2)
