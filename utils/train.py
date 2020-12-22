@@ -1109,7 +1109,7 @@ class ProgressiveGANTrainer(object):
             # Double model resolution
             if resolution != self.stop_resolution:
                 self.model.double_resolution()
-                self.load_weights(resolution)
+                self.__load_weights(resolution)
                 self.start_epoch = 1
             resolution *= 2
             self.loaded = False
@@ -1152,15 +1152,15 @@ class ProgressiveGANTrainer(object):
             grad_norms = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
             discriminator_gradient_penalty = tf.reduce_mean(tf.square(grad_norms - 1))
             if verbose:
-                print('Obtained Wasserstein Gradient Penalty for Discriminator')
+                print('Obtained Wasserstein Gradient Penalty for Discriminator: ',discriminator_gradient_penalty)
             
             # Compute Wasserstein loss for discriminator
             discriminator_wloss_real = -tf.math.reduce_mean(self.model.Discriminator((real_images,alpha_tensor), training=True))
             if verbose:
-                print('Obtained Wasserstein Loss for Discriminator on REAL images')
+                print('Obtained Wasserstein Loss for Discriminator on REAL images: ', discriminator_wloss_real)
             discriminator_wloss_fake = tf.math.reduce_mean(self.model.Discriminator((generated_images,alpha_tensor), training=True))
             if verbose:
-                print('Obtained Wasserstein Loss for Discriminator on FAKE images')
+                print('Obtained Wasserstein Loss for Discriminator on FAKE images: ', discriminator_wloss_fake)
 
             total_discriminator_loss = discriminator_wloss_real + discriminator_wloss_fake + self.config.lambdaGP*discriminator_gradient_penalty
 
@@ -1210,7 +1210,7 @@ class ProgressiveGANTrainer(object):
             # Compute generator Wasserstein Loss
             generator_wloss_fake = -tf.math.reduce_mean(fake_predictions)
             if verbose:
-                print('Obtained Wasserstein Loss for Generator on FAKE images')
+                print('Obtained Wasserstein Loss for Generator on FAKE images: ', generator_wloss_fake)
 
             total_generator_loss = generator_wloss_fake
 
