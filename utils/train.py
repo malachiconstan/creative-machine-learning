@@ -1109,7 +1109,7 @@ class ProgressiveGANTrainer(object):
             # Double model resolution
             if resolution != self.stop_resolution:
                 self.model.double_resolution()
-                self.load_weights(resolution)
+                self.__load_weights(resolution)
                 self.start_epoch = 1
             resolution *= 2
             self.loaded = False
