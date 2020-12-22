@@ -202,7 +202,7 @@ def plot_image_grid(grid,
                     dpi=224):
     '''
     Helper function from INNvestigate library
-
+    INNvestigate https://github.com/albermax/innvestigate
     '''
     n_rows = len(grid)
     n_cols = len(grid[0])
